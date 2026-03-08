@@ -44,6 +44,11 @@ const drawController = {
         });
       }
 
+      // Auto close registration if still open
+      if (event.registration_open) {
+        await EventModel.closeRegistration(eventId);
+      }
+
       const session = await DrawModel.startSession(eventId);
 
       res.status(201).json({

@@ -1,5 +1,6 @@
 const ParticipantModel = require('../models/participantModel');
 const EventModel = require('../models/eventModel');
+const DrawModel = require('../models/drawModel');
 
 const participantController = {
 
@@ -31,6 +32,15 @@ const participantController = {
         return res.status(400).json({
           success: false,
           message: 'Registration is closed'
+        });
+      }
+
+      // Check draw session not started yet
+      const activeSession = await DrawModel.getActiveSession(eventId);
+      if (activeSession) {
+        return res.status(400).json({
+          success: false,
+          message: 'Lucky draw session has started. Registration is closed'
         });
       }
 
