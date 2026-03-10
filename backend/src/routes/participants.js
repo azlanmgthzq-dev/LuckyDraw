@@ -12,4 +12,8 @@ router.get('/', protect, participantController.getAll);
 router.post('/preregister', protect, participantController.preRegister);
 router.post('/:id/checkin', protect, participantController.checkIn);
 
+// Delete — deleteAll MESTI sebelum deleteOne (/:id akan capture 'all' kalau letak dulu)
+router.delete('/all', protect, participantController.deleteAll);
+router.delete('/:id', protect, participantController.deleteOne);
+
 module.exports = router;

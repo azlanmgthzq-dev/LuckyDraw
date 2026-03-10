@@ -17,9 +17,24 @@ const participantService = {
         return response.data.data;
     },
 
+    async addVIP(eventId, data) {
+        const response = await api.post(`/events/${eventId}/participants/preregister`, data);
+        return response.data.data;
+    },
+
     async checkIn(eventId, participantId) {
         const response = await api.post(`/events/${eventId}/participants/${participantId}/checkin`);
         return response.data.data;
+    },
+
+    async deleteOne(eventId, participantId) {
+        const response = await api.delete(`/events/${eventId}/participants/${participantId}`);
+        return response.data;
+    },
+
+    async deleteAll(eventId) {
+        const response = await api.delete(`/events/${eventId}/participants/all`);
+        return response.data;
     },
 
 };

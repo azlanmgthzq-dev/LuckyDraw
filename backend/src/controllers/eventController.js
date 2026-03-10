@@ -5,7 +5,7 @@ const eventController = {
   // GET /api/events
   async getAll(req, res, next) {
     try {
-      const events = await EventModel.findAll();
+      const events = await EventModel.findAllActive();
       res.json({
         success: true,
         data: events
@@ -80,17 +80,9 @@ const eventController = {
   },
 
   // POST /api/events/:id/registration/open
+  // No duration required — admin controls open/close manually
   async openRegistration(req, res, next) {
     try {
-      const { duration_minutes } = req.body;
-
-      if (![3, 5, 7].includes(Number(duration_minutes))) {
-        return res.status(400).json({
-          success: false,
-          message: 'Duration must be 3, 5, or 7 minutes'
-        });
-      }
-
       const event = await EventModel.findById(req.params.id);
       if (!event) {
         return res.status(404).json({
@@ -99,14 +91,11 @@ const eventController = {
         });
       }
 
-      const updated = await EventModel.openRegistration(
-        req.params.id,
-        duration_minutes
-      );
+      const updated = await EventModel.openRegistration(req.params.id);
 
       res.json({
         success: true,
-        message: `Registration opened for ${duration_minutes} minutes`,
+        message: 'Registration opened',
         data: updated
       });
     } catch (err) {
@@ -131,6 +120,20 @@ const eventController = {
         message: 'Registration closed successfully',
         data: updated
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async archive(req, res, next) {
+    try {
+      const { id } = req.params;
+      const event = await EventModel.findById(id);
+      if (!event) {
+        return res.status(404).json({ success: false, message: 'Event not found' });
+      }
+      const archived = await EventModel.archive(id);
+      res.json({ success: true, message: 'Event archived', data: archived });
     } catch (err) {
       next(err);
     }

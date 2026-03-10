@@ -22,7 +22,12 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/events', require('./routes/events'));
 app.use('/api/events/:eventId/participants', require('./routes/participants'));
 app.use('/api/events/:eventId/prizes', require('./routes/prizes'));
+app.use('/api/prizes', require('./routes/prizes'));
+app.use('/api/upload', require('./routes/upload'));
 app.use('/api', require('./routes/draw'));
+app.use('/api/participant', require('./routes/participantAuth'));
+
+
 
 // Error handler
 const errorHandler = require('./middleware/errorHandler');

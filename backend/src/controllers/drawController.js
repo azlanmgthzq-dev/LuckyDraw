@@ -18,13 +18,14 @@ const drawController = {
       }
 
       // Check no active session
-      const existing = await DrawModel.getActiveSession(eventId);
-      if (existing) {
-        return res.status(400).json({
-          success: false,
-          message: 'Draw session already active'
-        });
-      }
+        const existing = await DrawModel.getActiveSession(eventId);
+        if (existing) {
+          return res.status(200).json({
+            success: true,
+            message: 'Draw session already active',
+            data: existing
+          });
+        }
 
       // Check prizes exist
       const prizes = await PrizeModel.findByEvent(eventId);

@@ -46,18 +46,18 @@ const EventModel = {
     return result.rows[0];
   },
 
-  // Open registration
-  async openRegistration(id, durationMinutes) {
-    const closesAt = new Date(Date.now() + durationMinutes * 60 * 1000);
+  // Open registration — manual, no countdown
+  // Sets registration_closes_at far in the future (99 years) so existing checks don't break
+  async openRegistration(id) {
+    const farFuture = new Date('2099-12-31T23:59:59Z');
     const result = await pool.query(
       `UPDATE events
        SET registration_open = TRUE,
-           registration_duration_minutes = $1,
-           registration_closes_at = $2,
+           registration_closes_at = $1,
            status = 'registration'
-       WHERE id = $3
+       WHERE id = $2
        RETURNING *`,
-      [durationMinutes, closesAt, id]
+      [farFuture, id]
     );
     return result.rows[0];
   },
@@ -75,15 +75,17 @@ const EventModel = {
     return result.rows[0];
   },
 
-  // Auto close expired registrations
-  async autoCloseExpired() {
+  async archive(id) {
     const result = await pool.query(
-      `UPDATE events
-       SET registration_open = FALSE,
-           status = 'ready'
-       WHERE registration_open = TRUE
-       AND registration_closes_at < NOW()
-       RETURNING id, name`
+      'UPDATE events SET is_archived = TRUE WHERE id = $1 RETURNING *',
+      [id]
+    );
+    return result.rows[0];
+  },
+
+  async findAllActive() {
+    const result = await pool.query(
+      'SELECT * FROM events WHERE is_archived = FALSE ORDER BY created_at DESC'
     );
     return result.rows;
   },

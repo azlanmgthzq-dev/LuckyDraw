@@ -6,6 +6,11 @@ const eventService = {
         const response = await api.get('/events');
         return response.data.data;
     },
+    
+    async archive(id) {
+        const response = await api.put(`/events/${id}/archive`);
+        return response.data.data;
+      },
 
     async getById(id) {
         const response = await api.get(`/events/${id}`);
