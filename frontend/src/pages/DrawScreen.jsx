@@ -1,74 +1,121 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import confetti from 'canvas-confetti';
 import eventService from '../services/eventService';
 import prizeService from '../services/prizeService';
 import drawService from '../services/drawService';
 import participantService from '../services/participantService';
+import { isPresent } from '../utils/participants';
 
-// Removed static background in favor of tailwind ambient gradients
-const BG_STYLE = {};
+// ── Animation timing ────────────────────────────────────────────
+const IDLE_STEP_MS = 280;          // slow random highlight before drawing
+const FAST_STEP_MS = 70;           // rapid flashing while drawing
+const FAST_PHASE_MS = 2200;        // minimum time of rapid flashing
+const SLOWDOWN_STEPS_MS = [90, 110, 140, 180, 230, 290, 360, 440, 540]; // then lands on winner
+const FINAL_STEP_MS = 650;
+const OVERLAY_DELAY_MS = 1200;     // let the gold winner card shine before the overlay
 
-// How many decoration slots to show based on winner_count
-// winner_count = 1 → 1 slot (just the winner, centered, big)
-// winner_count = 2 → 2 slots
-// winner_count >= 3 → 3 slots (left noise | winner | right noise)
-const getSlotCount = (winnerCount) => {
-    if (winnerCount === 1) return 1;
-    if (winnerCount === 2) return 2;
-    return 3;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const pickRandom = (ids, exclude) => {
+    if (ids.length === 0) return null;
+    if (ids.length === 1) return ids[0];
+    let id;
+    do { id = ids[Math.floor(Math.random() * ids.length)]; } while (id === exclude);
+    return id;
 };
+
+// Full-screen confetti for ~3 seconds
+const fireConfetti = () => {
+    const end = Date.now() + 3000;
+    const colors = ['#facc15', '#f59e0b', '#ef4444', '#ffffff', '#fb7185'];
+    confetti({ particleCount: 160, spread: 100, origin: { y: 0.6 }, colors, zIndex: 9999 });
+    (function frame() {
+        confetti({ particleCount: 6, angle: 60, spread: 70, origin: { x: 0 }, colors, zIndex: 9999 });
+        confetti({ particleCount: 6, angle: 120, spread: 70, origin: { x: 1 }, colors, zIndex: 9999 });
+        if (Date.now() < end) requestAnimationFrame(frame);
+    })();
+};
+
+// ── Name card ───────────────────────────────────────────────────
+const NameCard = memo(function NameCard({ name, state }) {
+    // state: normal | highlight | winner | dim
+    const base = 'relative rounded-xl border px-2 py-3 flex items-center justify-center text-center min-h-[64px] select-none';
+    const styles = {
+        normal: 'bg-white/[0.04] border-white/10 text-gray-300 transition-all duration-300',
+        highlight: 'bg-yellow-400/90 border-yellow-200 text-black scale-105 shadow-[0_0_25px_rgba(250,204,21,0.7)] z-10',
+        winner: 'bg-gradient-to-br from-yellow-300 to-amber-500 border-yellow-100 text-black scale-125 z-20 animate-winner-glow transition-all duration-500',
+        dim: 'bg-white/[0.02] border-white/5 text-gray-600 opacity-20 transition-all duration-700',
+    };
+    return (
+        <div className={`${base} ${styles[state]}`}>
+            {state === 'winner' && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xl">👑</span>
+            )}
+            <span className={`font-bold leading-tight line-clamp-2 ${state === 'winner' ? 'text-base md:text-lg font-black' : 'text-xs md:text-sm'}`}>
+                {name}
+            </span>
+        </div>
+    );
+});
 
 const DrawScreen = () => {
     const { eventId } = useParams();
     const navigate = useNavigate();
 
+    // Data
     const [eventData, setEventData] = useState(null);
     const [prizes, setPrizes] = useState([]);
+    const [participants, setParticipants] = useState([]);
+    const [results, setResults] = useState([]); // { prize_id, participant_id, winner_name, winner_index }
     const [currentPrizeIndex, setCurrentPrizeIndex] = useState(0);
-    const [winners, setWinners] = useState([]);
-    const [allCompleted, setAllCompleted] = useState(false);
 
-    const [isDrawing, setIsDrawing] = useState(false);
-    const [isRevealed, setIsRevealed] = useState(false);
-    const [slots, setSlots] = useState([]);
-    const [errorMsg, setErrorMsg] = useState('');
+    // UI
     const [loading, setLoading] = useState(true);
+    const [errorMsg, setErrorMsg] = useState('');
+    const [phase, setPhase] = useState('idle');   // idle | drawing | revealed
+    const [paused, setPaused] = useState(false);
+    const [highlightId, setHighlightId] = useState(null);
+    const [frozenPool, setFrozenPool] = useState(null); // grid snapshot while drawing / revealed
+    const [winner, setWinner] = useState(null);         // { id, name }
+    const [showOverlay, setShowOverlay] = useState(false);
 
-    const animationRef = useRef(null);
-    // Real participant names used for the spinning slot animation
-    const namePoolRef = useRef([]);
-
-    // ── Init ──────────────────────────────────────────────────────
+    const mountedRef = useRef(true);
     useEffect(() => {
-        const initializeSession = async () => {
+        mountedRef.current = true;
+        return () => { mountedRef.current = false; confetti.reset(); };
+    }, []);
+
+    const refreshParticipants = useCallback(async () => {
+        try {
+            const list = await participantService.getAll(eventId);
+            if (mountedRef.current) setParticipants(list);
+        } catch { /* keep previous list */ }
+    }, [eventId]);
+
+    // ── Init: event, session, prizes, participants, existing results ──
+    useEffect(() => {
+        const init = async () => {
             try {
-                setLoading(true);
-                const evData = await eventService.getById(eventId);
-                setEventData(evData);
+                const ev = await eventService.getById(eventId);
+                setEventData(ev);
 
-                try {
-                    await drawService.startSession(eventId);
-                } catch {
-                    console.log('Session may already exist, continuing...');
-                }
+                try { await drawService.startSession(eventId); }
+                catch (err) { setErrorMsg(err.message); }
 
-                try {
-                    const parts = await participantService.getAll(eventId);
-                    namePoolRef.current = parts.map(p => p.name).filter(Boolean);
-                } catch {
-                    namePoolRef.current = [];
-                }
+                const [przs, parts, res] = await Promise.all([
+                    prizeService.getAll(eventId),
+                    participantService.getAll(eventId),
+                    drawService.getResults(eventId),
+                ]);
+                setPrizes(przs);
+                setParticipants(parts);
+                setResults(res);
 
-                const przs = await prizeService.getAll(eventId);
-                if (przs.length === 0) {
-                    setErrorMsg('Tiada hadiah didaftarkan untuk acara ini.');
-                    setAllCompleted(true);
-                } else {
-                    setPrizes(przs);
-                    setCurrentPrizeIndex(0);
-                    // Init slots based on first prize winner_count
-                    setSlots(Array(getSlotCount(przs[0].winner_count)).fill(''));
-                }
+                // Resume at the first prize that still has empty slots
+                const firstOpen = przs.findIndex(p =>
+                    res.filter(r => r.prize_id === p.id).length < p.winner_count);
+                setCurrentPrizeIndex(firstOpen === -1 ? przs.length : firstOpen);
             } catch (err) {
                 console.error(err);
                 setErrorMsg('Gagal memulakan sesi cabutan.');
@@ -76,143 +123,159 @@ const DrawScreen = () => {
                 setLoading(false);
             }
         };
-
-        if (eventId) initializeSession();
-        return () => { if (animationRef.current) clearInterval(animationRef.current); };
+        if (eventId) init();
     }, [eventId]);
 
+    // ── Derived ──
     const currentPrize = prizes[currentPrizeIndex];
-    const slotCount = currentPrize ? getSlotCount(currentPrize.winner_count) : 1;
+    const allDone = !loading && prizes.length > 0 && currentPrizeIndex >= prizes.length;
+    const drawnForPrize = currentPrize ? results.filter(r => r.prize_id === currentPrize.id).length : 0;
+    const prizeComplete = currentPrize && drawnForPrize >= currentPrize.winner_count;
+    const isLastPrize = currentPrizeIndex >= prizes.length - 1;
+    const isMysteryHidden = !!currentPrize?.is_mystery && drawnForPrize === 0;
 
-    // Center slot index — where winner name appears
-    const centerIndex = slotCount === 1 ? 0 : slotCount === 2 ? 1 : 1;
+    // Eligible = present and has not won yet
+    const eligible = useMemo(() => {
+        const winnerIds = new Set(results.map(r => r.participant_id));
+        return participants.filter(p => isPresent(p) && !winnerIds.has(p.id));
+    }, [participants, results]);
 
-    const isCurrentPrizeComplete = currentPrize && (winners.length >= currentPrize.winner_count);
+    const pool = frozenPool ?? eligible;
+    const poolIds = useMemo(() => pool.map(p => p.id), [pool]);
 
-    // Mystery prize: hide title + image until the first winner is revealed
-    const isMysteryHidden = !!currentPrize?.is_mystery && winners.length === 0;
+    // ── Idle animation (pausable) ──
+    useEffect(() => {
+        if (phase !== 'idle' || paused || poolIds.length === 0) return;
+        const t = setInterval(() => setHighlightId(prev => pickRandom(poolIds, prev)), IDLE_STEP_MS);
+        return () => clearInterval(t);
+    }, [phase, paused, poolIds]);
 
-    // ── Handlers ──────────────────────────────────────────────────
+    // ── Draw ──
     const handleDraw = async () => {
-        if (isDrawing || !currentPrize) return;
+        if (phase !== 'idle' || !currentPrize || prizeComplete) return;
         setErrorMsg('');
-        setIsDrawing(true);
-        setIsRevealed(false);
-        setSlots(Array(slotCount).fill(''));
+        setPaused(false);
 
+        const snapshot = eligible;
+        const ids = snapshot.map(p => p.id);
+        setFrozenPool(snapshot);
+        setPhase('drawing');
+
+        // The database picks + saves the winner; the animation is only visual
+        const drawPromise = drawService.draw(currentPrize.id);
+
+        let last = null;
+        const fast = setInterval(() => {
+            last = pickRandom(ids, last);
+            setHighlightId(last);
+        }, FAST_STEP_MS);
+
+        let data;
         try {
-            startSlotAnimation(slotCount);
-            const winnerData = await drawService.draw(currentPrize.id);
-            setTimeout(() => {
-                stopSlotAnimation(winnerData.winner, slotCount);
-            }, 3000);
+            [data] = await Promise.all([drawPromise, sleep(FAST_PHASE_MS)]);
         } catch (err) {
-            console.error(err);
-            stopSlotAnimation(null, slotCount, true);
-            setErrorMsg(err.response?.data?.message || 'Gagal mencari pemenang.');
-        }
-    };
-
-    const handleNextWinner = () => {
-        setIsRevealed(false);
-        setSlots(Array(slotCount).fill(''));
-    };
-
-    const handleNextPrize = () => {
-        if (currentPrizeIndex < prizes.length - 1) {
-            const nextPrize = prizes[currentPrizeIndex + 1];
-            setCurrentPrizeIndex(prev => prev + 1);
-            setWinners([]);
-            setIsRevealed(false);
-            setSlots(Array(getSlotCount(nextPrize.winner_count)).fill(''));
-        } else {
-            setAllCompleted(true);
-        }
-    };
-
-    const handleEndSession = async () => {
-        try {
-            await drawService.endSession(eventId);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            navigate('/admin');
-        }
-    };
-
-    // ── Animation ─────────────────────────────────────────────────
-    const startSlotAnimation = (count) => {
-        if (animationRef.current) clearInterval(animationRef.current);
-        animationRef.current = setInterval(() => {
-            setSlots(Array(count).fill(null).map(() => getRandomName()));
-        }, 80);
-    };
-
-    const stopSlotAnimation = (winnerData, count, isError = false) => {
-        if (animationRef.current) clearInterval(animationRef.current);
-        setIsDrawing(false);
-
-        if (isError || !winnerData) {
-            setSlots(Array(count).fill('ERROR'));
+            clearInterval(fast);
+            if (!mountedRef.current) return;
+            setErrorMsg(err.message || 'Gagal mencari pemenang.');
+            setFrozenPool(null);
+            setHighlightId(null);
+            setPhase('idle');
             return;
         }
+        clearInterval(fast);
+        if (!mountedRef.current) return;
 
-        const winnerName = winnerData.name || winnerData.email || `ID: ${winnerData.id}`;
-        const center = count === 1 ? 0 : 1;
+        const won = data.winner;
+        // Scripted winner might not be in the grid — add them so the animation can land
+        if (!ids.includes(won.id)) {
+            setFrozenPool(prev => [...(prev ?? []), { id: won.id, name: won.name }]);
+            ids.push(won.id);
+        }
 
-        const newSlots = Array(count).fill(null).map((_, i) =>
-            i === center ? winnerName : getRandomName()
-        );
+        // Slow down gradually, then land on the winner
+        for (const ms of SLOWDOWN_STEPS_MS) {
+            last = pickRandom(ids.filter(id => id !== won.id), last) ?? won.id;
+            setHighlightId(last);
+            await sleep(ms);
+            if (!mountedRef.current) return;
+        }
+        await sleep(FINAL_STEP_MS);
+        if (!mountedRef.current) return;
 
-        setSlots(newSlots);
-        setWinners(prev => [...prev, winnerData]);
-        setIsRevealed(true);
+        setHighlightId(won.id);
+        setWinner({ id: won.id, name: won.name });
+        setResults(prev => [...prev, {
+            prize_id: currentPrize.id,
+            participant_id: won.id,
+            winner_name: won.name,
+            winner_index: data.winner_index,
+        }]);
+        setPhase('revealed');
+        fireConfetti();
+
+        setTimeout(() => { if (mountedRef.current) setShowOverlay(true); }, OVERLAY_DELAY_MS);
+        refreshParticipants(); // pick up new check-ins for the next draw
     };
 
-    const getRandomName = () => {
-        const pool = namePoolRef.current;
-        return pool.length ? pool[Math.floor(Math.random() * pool.length)] : '???';
+    // ── After reveal ──
+    const resetForNextDraw = () => {
+        confetti.reset();
+        setShowOverlay(false);
+        setWinner(null);
+        setFrozenPool(null);
+        setHighlightId(null);
+        setPhase('idle');
     };
 
-    // ── Loading ───────────────────────────────────────────────────
+    const handleNextWinner = () => resetForNextDraw();
+
+    const handleNextPrize = () => {
+        resetForNextDraw();
+        setCurrentPrizeIndex(i => i + 1);
+    };
+
+    const goToSummary = async () => {
+        try { await drawService.endSession(eventId); } catch { /* already ended */ }
+        navigate(`/summary/${eventId}`);
+    };
+
+    const handleEndSession = () => {
+        if (phase === 'drawing') return;
+        if (!allDone && !window.confirm('Tamatkan sesi cabutan dan lihat ringkasan?')) return;
+        goToSummary();
+    };
+
+    const cardState = (id) => {
+        if (phase === 'revealed') return id === winner?.id ? 'winner' : 'dim';
+        return id === highlightId ? 'highlight' : 'normal';
+    };
+
+    // ── Loading ──
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center relative overflow-hidden" style={BG_STYLE}>
-                {/* Minimalist ambient red glow */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-red-600/10 rounded-full blur-[80px] pointer-events-none" />
-                <div className="relative z-10 text-xl md:text-2xl text-red-500 font-bold tracking-widest animate-pulse">Loading Draw Session...</div>
+            <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+                <div className="text-xl md:text-2xl text-red-500 font-bold tracking-widest animate-pulse">Loading Draw Session...</div>
             </div>
         );
     }
 
-    // ── All Completed ─────────────────────────────────────────────
-    if (allCompleted) {
+    // ── No prizes / all done ──
+    if (prizes.length === 0 || allDone) {
         return (
-            <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center relative overflow-hidden">
-                {/* Deep crimson ambient background */}
-                <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[120px] pointer-events-none animate-pulse" style={{ animationDuration: '4s' }} />
-                <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-rose-900/20 rounded-full blur-[150px] pointer-events-none animate-pulse" style={{ animationDuration: '6s' }} />
-
-                <div className="z-20 text-center space-y-8 p-10 max-w-2xl bg-white/5 backdrop-blur-xl rounded-[2.5rem] border border-white/10 shadow-2xl relative">
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-[2.5rem] pointer-events-none" />
-                    
-                    <h1 className="text-4xl md:text-5xl font-black text-white relative">
-                        🎉 Semua Hadiah Selesai!
+            <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center relative overflow-hidden p-6">
+                <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[120px] pointer-events-none" />
+                <div className="z-10 text-center space-y-6 p-10 max-w-xl bg-white/5 backdrop-blur-xl rounded-[2rem] border border-white/10">
+                    <h1 className="text-3xl md:text-4xl font-black">
+                        {prizes.length === 0 ? 'Tiada hadiah didaftarkan' : '🎉 Semua Hadiah Selesai!'}
                     </h1>
-                    <p className="text-xl md:text-2xl text-red-200/80 font-medium">
-                        Tahniah kepada semua pemenang
-                    </p>
-                    <div className="pt-8 flex flex-col sm:flex-row gap-4 justify-center relative z-10">
-                        <button
-                            onClick={handleEndSession}
-                            className="px-8 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-lg font-bold rounded-2xl transition-all shadow-[0_8px_30px_rgba(225,29,72,0.3)] hover:scale-[1.02] active:scale-95"
-                        >
-                            Lihat Keputusan
-                        </button>
-                        <button
-                            onClick={() => navigate('/admin')}
-                            className="px-8 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-lg font-bold rounded-2xl transition-all hover:scale-[1.02] active:scale-95"
-                        >
+                    {errorMsg && <p className="text-red-300 text-sm">{errorMsg}</p>}
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                        {prizes.length > 0 && (
+                            <button onClick={goToSummary} className="px-8 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-lg font-bold rounded-2xl transition-all hover:scale-[1.02]">
+                                Lihat Ringkasan 📋
+                            </button>
+                        )}
+                        <button onClick={() => navigate('/admin')} className="px-8 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-lg font-bold rounded-2xl">
                             Dashboard
                         </button>
                     </div>
@@ -221,189 +284,152 @@ const DrawScreen = () => {
         );
     }
 
-    // ── Main Draw Screen ──────────────────────────────────────────
+    // ── Main ──
     return (
-        <div className="min-h-screen relative flex flex-col items-center font-sans overflow-hidden bg-slate-950">
-            {/* Ambient Red & Rose Glows */}
-            <div className="absolute top-[-5%] left-[-10%] w-[350px] h-[350px] sm:w-[600px] sm:h-[600px] bg-red-600/10 rounded-full blur-[100px] sm:blur-[140px] pointer-events-none animate-pulse" style={{ animationDuration: '5s' }} />
-            <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] sm:w-[600px] sm:h-[600px] bg-rose-900/20 rounded-full blur-[120px] sm:blur-[160px] pointer-events-none animate-pulse" style={{ animationDuration: '7s' }} />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] sm:w-[800px] sm:h-[800px] bg-red-900/5 rounded-full blur-[100px] sm:blur-[160px] pointer-events-none" />
+        <div className="h-screen relative flex flex-col font-sans overflow-hidden bg-slate-950 text-white">
+            <div className="absolute top-[-10%] left-[-10%] w-[600px] h-[600px] bg-red-600/10 rounded-full blur-[140px] pointer-events-none" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-rose-900/20 rounded-full blur-[160px] pointer-events-none" />
 
-            {/* Top Bar */}
-            <header className="w-full relative z-20 px-6 py-4 flex justify-between items-center bg-white/[0.02] backdrop-blur-md border-b border-white/5">
-                <div className="text-xl md:text-2xl font-bold text-white/90 tracking-wide drop-shadow-md">
-                    {eventData?.name || 'Loading Event...'}
-                </div>
+            {/* Top bar */}
+            <header className="relative z-20 px-4 md:px-6 py-3 flex justify-between items-center bg-white/[0.02] backdrop-blur-md border-b border-white/5 shrink-0">
+                <div className="text-lg md:text-xl font-bold text-white/90 truncate">{eventData?.name}</div>
                 <button
                     onClick={handleEndSession}
-                    className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 px-4 py-2 rounded-xl text-sm font-bold transition-all hover:scale-105 active:scale-95"
+                    disabled={phase === 'drawing'}
+                    className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 px-4 py-2 rounded-xl text-sm font-bold transition-all disabled:opacity-40"
                 >
                     Tamat Sesi
                 </button>
             </header>
 
-            {/* Main Content */}
-            <main className="relative z-10 flex-1 w-full max-w-5xl mx-auto flex flex-col items-center justify-center p-4 py-6 gap-8">
-
-                {/* Prize Info */}
-                <div className="text-center flex flex-col items-center gap-4 animate-fade-in-up">
-                    {isMysteryHidden ? (
-                        <div className="relative group perspective-1000">
-                            <div className="w-40 h-40 md:w-52 md:h-52 rounded-[2rem] border border-purple-400/30 bg-gradient-to-br from-purple-600/20 to-rose-600/10 backdrop-blur-md flex items-center justify-center text-[5rem] md:text-[6.5rem] shadow-[0_10px_40px_rgba(147,51,234,0.3)]">
-                                <span className="animate-float inline-block drop-shadow-[0_20px_20px_rgba(0,0,0,0.8)]">🎁</span>
-                            </div>
-                            <div className="absolute inset-0 rounded-[2rem] bg-purple-500/20 blur-2xl -z-10" />
-                        </div>
-                    ) : currentPrize?.image_url ? (
-                        <div className="relative group perspective-1000">
-                            <img
-                                key={`img-${currentPrize.id}`}
-                                src={currentPrize.image_url}
-                                alt={currentPrize.title}
-                                className={`w-40 h-40 md:w-52 md:h-52 object-contain rounded-[2rem] border border-white/10 shadow-[0_10px_40px_rgba(0,0,0,0.5)] bg-white/5 backdrop-blur-sm p-4 transform transition-all duration-700 hover:scale-[1.02] hover:rotate-y-6 ${currentPrize.is_mystery ? 'animate-fade-in' : ''}`}
-                            />
-                            <div className="absolute inset-0 rounded-[2rem] bg-red-500/10 blur-2xl -z-10 group-hover:bg-red-500/20 transition-all duration-700" />
-                        </div>
-                    ) : (
-                        <div className="relative group perspective-1000">
-                            <div className="w-40 h-40 md:w-52 md:h-52 rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.02] backdrop-blur-md flex items-center justify-center text-[5rem] md:text-[6.5rem] transform transition-all duration-700 hover:scale-[1.03] hover:-rotate-y-12 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
-                                <span className="animate-float inline-block drop-shadow-[0_20px_20px_rgba(0,0,0,0.8)] filter contrast-125 saturate-150" style={{ textShadow: '0 10px 20px rgba(0,0,0,0.5)' }}>🎁</span>
-                            </div>
-                            <div className="absolute inset-0 rounded-[2rem] bg-rose-500/10 blur-2xl -z-10 group-hover:bg-rose-500/25 transition-all duration-700" />
-                        </div>
-                    )}
-
-                    <div className="inline-flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 px-5 py-1.5 rounded-full text-xs font-bold tracking-[0.2em] uppercase backdrop-blur-sm mt-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+            {/* Prize strip */}
+            <section className="relative z-10 shrink-0 flex items-center justify-center gap-4 md:gap-6 px-4 py-4">
+                {isMysteryHidden || !currentPrize?.image_url ? (
+                    <div className={`w-20 h-20 md:w-24 md:h-24 rounded-2xl border flex items-center justify-center text-4xl md:text-5xl shrink-0 ${isMysteryHidden ? 'border-purple-400/30 bg-purple-600/20' : 'border-white/10 bg-white/5'}`}>
+                        <span className="animate-float inline-block">🎁</span>
+                    </div>
+                ) : (
+                    <img
+                        key={`img-${currentPrize.id}`}
+                        src={currentPrize.image_url}
+                        alt={currentPrize.title}
+                        className="w-20 h-20 md:w-24 md:h-24 object-contain rounded-2xl border border-white/10 bg-white/5 p-2 shrink-0 animate-fade-in"
+                    />
+                )}
+                <div className="min-w-0">
+                    <div className="inline-flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 px-3 py-1 rounded-full text-[10px] font-bold tracking-[0.2em] uppercase">
                         Hadiah Ke-{currentPrize?.prize_order}
                     </div>
-
                     {isMysteryHidden ? (
-                        <h2 className="text-4xl md:text-5xl lg:text-6xl font-black text-purple-300 tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
-                            🎁 Hadiah Misteri
-                        </h2>
+                        <h2 className="text-2xl md:text-4xl font-black text-purple-300 mt-1">🎁 Hadiah Misteri</h2>
                     ) : (
-                        // key changes on reveal so the fade-in animation replays
-                        <h2
-                            key={`title-${currentPrize?.id}-${currentPrize?.is_mystery ? 'revealed' : 'plain'}`}
-                            className={`text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)] ${currentPrize?.is_mystery ? 'animate-fade-in-up' : ''}`}
-                        >
-                            {currentPrize?.title || 'Loading Prize...'}
+                        <h2 key={`title-${currentPrize?.id}`} className="text-2xl md:text-4xl font-black mt-1 truncate animate-fade-in">
+                            {currentPrize?.title}
                         </h2>
                     )}
-
-                    <p className="text-base text-gray-400 font-medium tracking-wide">
-                        {winners.length} / {currentPrize?.winner_count} Pemenang Separuh Masa
+                    <p className="text-xs md:text-sm text-gray-400 mt-1">
+                        Pemenang {drawnForPrize} / {currentPrize?.winner_count} • {eligible.length} peserta layak
                     </p>
                 </div>
+            </section>
 
-                {/* ── Dynamic Slots ── */}
-                <div className={`flex flex-col md:flex-row gap-4 md:gap-6 w-full max-w-4xl justify-center ${slotCount === 1 ? 'md:max-w-sm' : slotCount === 2 ? 'md:max-w-xl' : 'md:max-w-4xl'
-                    } perspective-1000`}>
-                    {slots.map((slotValue, i) => {
-                        const isWinnerSlot = i === centerIndex;
-
-                        let slotStyle = "flex-1 h-[110px] rounded-[1.5rem] flex items-center justify-center transition-all duration-500 ease-out transform ";
-                        let textStyle = "font-bold text-center w-full px-6 overflow-hidden text-ellipsis whitespace-nowrap transition-all duration-300 ";
-
-                        // Single slot — bigger
-                        if (slotCount === 1) {
-                            slotStyle += "min-w-[280px] max-w-[420px] h-[140px] ";
-                            textStyle += "text-2xl md:text-3xl ";
-                        } else {
-                            slotStyle += "min-w-[180px] max-w-[300px] h-[120px] ";
-                            textStyle += "text-xl md:text-2xl ";
-                        }
-
-                        if (isDrawing) {
-                            slotStyle += "bg-white/5 border border-white/10 shadow-[inset_0_0_30px_rgba(255,255,255,0.02)] backdrop-blur-md ";
-                            textStyle += "text-white/40 blur-[2px] scale-95";
-                        } else if (isRevealed && isWinnerSlot) {
-                            slotStyle += "bg-gradient-to-br from-red-600/90 to-rose-700/90 border border-red-400/50 shadow-[0_0_50px_rgba(225,29,72,0.4)] scale-105 z-10 backdrop-blur-xl ";
-                            textStyle += "text-white font-black drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] tracking-wide";
-                            if (slotCount === 1) textStyle += " text-3xl md:text-4xl";
-                        } else {
-                            slotStyle += "bg-white/[0.03] border border-white/5 backdrop-blur-md ";
-                            textStyle += "text-gray-500 font-medium";
-                        }
-
-                        return (
-                            <div key={i} className={slotStyle}>
-                                <div className={textStyle}>
-                                    {slotValue || '---'}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                {/* Error Banner */}
-                {errorMsg && (
-                    <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-6 py-3 rounded-2xl font-medium text-sm backdrop-blur-sm animate-fade-in">
-                        ⚠️ {errorMsg}
+            {/* Name grid */}
+            <main className="relative z-10 flex-1 overflow-y-auto px-4 md:px-6 pb-4">
+                {pool.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-2">
+                        <div className="text-6xl opacity-30">👥</div>
+                        <p>Tiada peserta yang hadir dan layak.</p>
+                    </div>
+                ) : (
+                    <div
+                        className="grid gap-2 md:gap-3 py-3"
+                        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}
+                    >
+                        {pool.map(p => (
+                            <NameCard key={p.id} name={p.name} state={cardState(p.id)} />
+                        ))}
                     </div>
                 )}
-
-                {/* Winner Reveal Info Plate */}
-                {isRevealed && !isDrawing && winners.length > 0 && (
-                    <div className="text-center bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-[2rem] px-10 py-6 animate-fade-in-up mt-4 shadow-2xl">
-                        <div className="text-[10px] text-red-400 font-bold uppercase tracking-[0.3em] mb-2 opacity-80">🎉 Pemenang Disahkan</div>
-                        <div className="text-3xl md:text-4xl font-black text-white mb-3 tracking-tight">
-                            {winners[winners.length - 1].name || 'Anonymous'}
-                        </div>
-                        <div className="text-sm text-gray-400 font-mono bg-black/40 px-5 py-2 rounded-xl inline-block border border-white/5">
-                            {winners[winners.length - 1].email || `ID: #${winners[winners.length - 1].id}`}
-                        </div>
-                    </div>
-                )}
-
-                {/* Controls */}
-                <div className="flex flex-col items-center gap-4 mt-6">
-                    {!isRevealed && !isCurrentPrizeComplete ? (
-                        <button
-                            onClick={handleDraw}
-                            disabled={isDrawing}
-                            className={`relative group px-12 py-5 bg-gradient-to-r from-red-600 to-rose-600 text-white text-xl md:text-2xl font-black rounded-2xl transition-all outline-none ${isDrawing
-                                    ? 'opacity-50 cursor-not-allowed scale-[0.98]'
-                                    : 'hover:scale-[1.02] active:scale-[0.98] shadow-[0_10px_40px_rgba(225,29,72,0.4)] hover:shadow-[0_10px_50px_rgba(225,29,72,0.6)]'
-                                }`}
-                        >
-                            <div className="absolute inset-0 bg-white/20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
-                            {isDrawing ? (
-                                <span className="tracking-[0.2em] font-medium text-lg">MENGUNDI...</span>
-                            ) : (
-                                <span className="flex items-center gap-3">
-                                    <span className="text-2xl">🎲</span> CARI PEMENANG
-                                </span>
-                            )}
-                        </button>
-                    ) : (
-                        <div className="flex gap-4 animate-fade-in">
-                            {!isCurrentPrizeComplete ? (
-                                <button
-                                    onClick={handleNextWinner}
-                                    className="bg-white/10 hover:bg-white/15 border border-white/10 text-white px-8 py-4 rounded-2xl text-lg font-bold backdrop-blur-md transition-all hover:scale-[1.02] active:scale-[0.98]"
-                                >
-                                    Pemenang Seterusnya
-                                </button>
-                            ) : (
-                                <button
-                                    onClick={handleNextPrize}
-                                    className="bg-red-600/90 hover:bg-red-500 text-white px-10 py-4 rounded-2xl text-lg font-bold backdrop-blur-md shadow-[0_10px_30px_rgba(220,38,38,0.3)] border border-red-500/50 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                                >
-                                    Hadiah Seterusnya ➡️
-                                </button>
-                            )}
-                        </div>
-                    )}
-                </div>
-
             </main>
 
-            {/* Bottom Bar */}
-            <div className="w-full relative z-20 text-center py-4 bg-transparent text-gray-600 text-[10px] tracking-widest uppercase font-bold">
-                Sistem Cabutan Bertuah Digital • Minimalist Red
-            </div>
+            {/* Controls */}
+            <footer className="relative z-20 shrink-0 px-4 py-4 border-t border-white/5 bg-black/30 backdrop-blur-md flex flex-col items-center gap-2">
+                {errorMsg && (
+                    <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-2 rounded-xl text-sm">⚠️ {errorMsg}</div>
+                )}
+                <div className="flex items-center gap-3">
+                    {phase === 'idle' && (
+                        <>
+                            <button
+                                onClick={() => setPaused(p => !p)}
+                                disabled={pool.length === 0}
+                                className="px-5 py-4 bg-white/10 hover:bg-white/15 border border-white/10 rounded-2xl text-base font-bold transition-all disabled:opacity-40"
+                            >
+                                {paused ? '▶ Teruskan' : '⏸ Jeda'}
+                            </button>
+                            <button
+                                onClick={handleDraw}
+                                disabled={prizeComplete}
+                                className="px-10 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xl md:text-2xl font-black rounded-2xl shadow-[0_10px_40px_rgba(225,29,72,0.4)] transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40"
+                            >
+                                🎲 CARI PEMENANG
+                            </button>
+                        </>
+                    )}
+                    {phase === 'drawing' && (
+                        <div className="px-10 py-4 bg-white/5 border border-white/10 rounded-2xl text-lg font-bold tracking-[0.3em] text-yellow-300 animate-pulse">
+                            MENGUNDI...
+                        </div>
+                    )}
+                    {phase === 'revealed' && !showOverlay && (
+                        <div className="px-10 py-4 text-lg font-bold text-yellow-300">🎉 {winner?.name}</div>
+                    )}
+                </div>
+            </footer>
+
+            {/* Winner overlay */}
+            {showOverlay && winner && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
+                    <div className="text-center max-w-3xl w-full flex flex-col items-center gap-5">
+                        <div className="text-4xl md:text-6xl font-black text-yellow-400 tracking-wide animate-pop-in drop-shadow-[0_0_30px_rgba(250,204,21,0.6)]">
+                            🎉 TAHNIAH!
+                        </div>
+                        <div className="text-5xl md:text-7xl lg:text-8xl font-black text-white leading-tight break-words animate-fade-in-up">
+                            {winner.name}
+                        </div>
+
+                        <div className="flex flex-col items-center gap-3 mt-2 animate-fade-in-up">
+                            {currentPrize?.image_url ? (
+                                <img
+                                    src={currentPrize.image_url}
+                                    alt={currentPrize.title}
+                                    className="w-40 h-40 md:w-52 md:h-52 object-contain rounded-3xl border border-yellow-400/30 bg-white/5 p-3 shadow-[0_0_50px_rgba(250,204,21,0.25)]"
+                                />
+                            ) : (
+                                <div className="text-7xl">🎁</div>
+                            )}
+                            <div className="text-sm text-gray-400 uppercase tracking-[0.3em]">memenangi</div>
+                            <div className="text-2xl md:text-4xl font-black text-yellow-300">{currentPrize?.title}</div>
+                        </div>
+
+                        <div className="mt-6">
+                            {!prizeComplete ? (
+                                <button onClick={handleNextWinner} className="px-10 py-4 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl text-lg font-bold transition-all hover:scale-[1.02]">
+                                    Pemenang Seterusnya ➡️
+                                </button>
+                            ) : !isLastPrize ? (
+                                <button onClick={handleNextPrize} className="px-10 py-4 bg-red-600 hover:bg-red-500 rounded-2xl text-lg font-bold shadow-[0_10px_30px_rgba(220,38,38,0.4)] transition-all hover:scale-[1.02]">
+                                    Hadiah Seterusnya ➡️
+                                </button>
+                            ) : (
+                                <button onClick={goToSummary} className="px-10 py-4 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-400 hover:to-amber-400 text-black rounded-2xl text-lg font-black transition-all hover:scale-[1.02]">
+                                    Lihat Ringkasan 📋
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -4,12 +4,10 @@ import eventService from '../services/eventService';
 import participantService from '../services/participantService';
 import drawService from '../services/drawService';
 import { supabase } from '../services/supabaseClient';
+import { isPresent } from '../utils/participants';
 
 // Realtime is the main update path; polling is a slow fallback
 const POLL_INTERVAL = 20000;
-
-// Present = VIP who has checked in, or someone who registered on site via QR
-const isPresent = (p) => p.checked_in || !p.is_pre_registered;
 
 const LobbyScreen = () => {
     const { eventId } = useParams();

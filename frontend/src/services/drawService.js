@@ -30,12 +30,13 @@ const drawService = {
     async getResults(eventId) {
         const rows = check(await supabase
             .from('draw_results')
-            .select('id, winner_index, drawn_at, participant_id, participants ( name, email ), prizes ( title, image_url, prize_order )')
+            .select('id, prize_id, winner_index, drawn_at, participant_id, participants ( name, email ), prizes ( title, image_url, prize_order )')
             .eq('event_id', eventId));
 
         return rows
             .map(r => ({
                 id: r.id,
+                prize_id: r.prize_id,
                 winner_index: r.winner_index,
                 drawn_at: r.drawn_at,
                 participant_id: r.participant_id,

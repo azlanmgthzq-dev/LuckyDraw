@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import LobbyScreen from './pages/LobbyScreen';
 import DrawScreen from './pages/DrawScreen';
+import SummaryScreen from './pages/SummaryScreen';
 import ParticipantPortal from './pages/participant/ParticipantPortal';
 import ParticipantRegister from './pages/participant/ParticipantRegister';
 import CheckInPage from './pages/participant/CheckInPage';
@@ -45,6 +46,11 @@ function AppRoutes() {
       {/* Admin — draw screen */}
       <Route path="/draw/:eventId" element={
         <ProtectedRoute><DrawScreen /></ProtectedRoute>
+      } />
+
+      {/* Admin — results summary after the draw */}
+      <Route path="/summary/:eventId" element={
+        <ProtectedRoute><SummaryScreen /></ProtectedRoute>
       } />
 
       {/* Participant — registration page via QR code scan */}

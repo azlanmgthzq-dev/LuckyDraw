@@ -37,6 +37,28 @@ const participantPortalService = {
         }));
     },
 
+    // { id, name, checked_in, win: null | { prize_title, prize_image, winner_index } }
+    async getWin(eventId, email, code) {
+        return check(await supabase.rpc('get_participant_win', {
+            p_event_id: Number(eventId),
+            p_email: email,
+            p_code: code,
+        }));
+    },
+
+    // Calls onNewResult() when a draw result is saved for this participant
+    subscribeToWin(participantId, onNewResult) {
+        const channel = supabase
+            .channel(`win-${participantId}`)
+            .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'draw_results', filter: `participant_id=eq.${participantId}` },
+                () => onNewResult()
+            )
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    },
+
     async getCompletedEvents() {
         return check(await supabase.rpc('get_completed_events')) ?? [];
     },

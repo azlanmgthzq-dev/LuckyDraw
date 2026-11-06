@@ -406,7 +406,7 @@ UPDATE participants SET checkin_code = gen_checkin_code()
 WHERE is_pre_registered = TRUE AND checkin_code IS NULL;
 
 -- Public VIP check-in with email + code.
--- Returns { status: 'success' | 'already', name }. Never exposes other data.
+-- Returns { status: 'success' | 'already', id, name }. Never exposes other data.
 CREATE OR REPLACE FUNCTION participant_checkin(p_event_id INT, p_email TEXT, p_code TEXT)
 RETURNS JSON
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
@@ -427,11 +427,11 @@ BEGIN
     END IF;
 
     IF v_p.checked_in THEN
-        RETURN json_build_object('status', 'already', 'name', v_p.name);
+        RETURN json_build_object('status', 'already', 'id', v_p.id, 'name', v_p.name);
     END IF;
 
     UPDATE participants SET checked_in = TRUE WHERE id = v_p.id;
-    RETURN json_build_object('status', 'success', 'name', v_p.name);
+    RETURN json_build_object('status', 'success', 'id', v_p.id, 'name', v_p.name);
 END;
 $$;
 
@@ -478,6 +478,61 @@ BEGIN
         ALTER PUBLICATION supabase_realtime ADD TABLE participants;
     END IF;
 END $$;
+
+-- ------------------------------------------------------------
+-- 8. WINNER NOTIFICATION ON THE VIP'S PHONE
+-- The check-in page listens to new draw_results rows (realtime) and then
+-- asks get_participant_win() for the prize. draw_results only holds IDs,
+-- so letting anon read it reveals no names, phones or emails.
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS public_read_ids ON draw_results;
+CREATE POLICY public_read_ids ON draw_results FOR SELECT TO anon USING (TRUE);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'draw_results'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE draw_results;
+    END IF;
+END $$;
+
+-- Has this VIP won? Requires email + check-in code, same as check-in.
+-- Returns { id, name, checked_in, win: null | { prize_title, prize_image, winner_index } }
+CREATE OR REPLACE FUNCTION get_participant_win(p_event_id INT, p_email TEXT, p_code TEXT)
+RETURNS JSON
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+    v_p participants;
+    v_win JSON;
+BEGIN
+    SELECT p.* INTO v_p
+    FROM participants p
+    WHERE p.event_id = p_event_id
+      AND p.is_pre_registered = TRUE
+      AND LOWER(p.email) = LOWER(TRIM(p_email))
+      AND p.checkin_code = UPPER(TRIM(p_code))
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Email atau kod tidak sah.';
+    END IF;
+
+    SELECT json_build_object('prize_title', pr.title, 'prize_image', pr.image_url, 'winner_index', dr.winner_index)
+    INTO v_win
+    FROM draw_results dr
+    JOIN prizes pr ON pr.id = dr.prize_id
+    WHERE dr.participant_id = v_p.id
+    ORDER BY dr.drawn_at DESC
+    LIMIT 1;
+
+    RETURN json_build_object('id', v_p.id, 'name', v_p.name, 'checked_in', v_p.checked_in, 'win', v_win);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_participant_win(INT, TEXT, TEXT) TO anon, authenticated;
 
 -- ------------------------------------------------------------
 -- ADD AN ADMIN
