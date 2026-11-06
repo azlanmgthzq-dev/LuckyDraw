@@ -22,8 +22,12 @@ CREATE TABLE IF NOT EXISTS events (
     registration_open BOOLEAN DEFAULT FALSE,
     registration_duration_minutes INT,
     registration_closes_at TIMESTAMP,
+    is_archived BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- For databases created before is_archived was added
+ALTER TABLE events ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;
 
 -- PARTICIPANTS
 CREATE TABLE IF NOT EXISTS participants (

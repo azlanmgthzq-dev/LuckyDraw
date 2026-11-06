@@ -40,6 +40,7 @@ const AdminDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
     const [message, setMessage] = useState(null);
+    const [timeLeft, setTimeLeft] = useState('');
 
     // Modal visibility
     const [showCreateEvent, setShowCreateEvent] = useState(false);
@@ -48,8 +49,9 @@ const AdminDashboard = () => {
 
     // Form state
     const [eventForm, setEventForm] = useState({ name: '', description: '', event_date: '' });
-    const [prizeForm, setPrizeForm] = useState({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', id: null });
+    const [prizeForm, setPrizeForm] = useState({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', is_mystery: false, id: null });
     const [vipForm, setVipForm] = useState({ name: '', email: '', phone: '' });
+    const [regDuration, setRegDuration] = useState(3);
 
     // ─── Load Data ───────────────────────────────────────────────
     useEffect(() => { loadEvents(); }, []);
@@ -57,6 +59,29 @@ const AdminDashboard = () => {
     useEffect(() => {
         if (selectedEvent) loadEventData(selectedEvent.id);
     }, [selectedEvent?.id]);
+
+    // Countdown timer
+    useEffect(() => {
+        let interval;
+        if (selectedEvent?.registration_open && selectedEvent?.registration_closes_at) {
+            const tick = () => {
+                const distance = new Date(selectedEvent.registration_closes_at) - Date.now();
+                if (distance < 0) {
+                    setTimeLeft('CLOSED');
+                    clearInterval(interval);
+                } else {
+                    const m = Math.floor((distance % 3600000) / 60000);
+                    const s = Math.floor((distance % 60000) / 1000);
+                    setTimeLeft(`${m}m ${s}s`);
+                }
+            };
+            tick();
+            interval = setInterval(tick, 1000);
+        } else {
+            setTimeLeft('');
+        }
+        return () => clearInterval(interval);
+    }, [selectedEvent]);
 
     const showMessage = (type, text) => {
         setMessage({ type, text });
@@ -129,7 +154,7 @@ const AdminDashboard = () => {
                 showMessage('success', 'Hadiah ditambah / Prize added');
             }
             setShowAddPrize(false);
-            setPrizeForm({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', id: null });
+            setPrizeForm({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', is_mystery: false, id: null });
             await loadEventData(selectedEvent.id);
         } catch (err) {
             showMessage('error', err.response?.data?.message || 'Gagal menyimpan hadiah');
@@ -159,41 +184,13 @@ const AdminDashboard = () => {
         if (!selectedEvent) return;
         setActionLoading(true);
         try {
-            await participantService.addVIP(selectedEvent.id, vipForm);
-            showMessage('success', 'VIP ditambah / VIP added');
+            const vip = await participantService.preRegister(selectedEvent.id, { ...vipForm, is_pre_registered: true });
+            showMessage('success', `VIP didaftar. Kod check-in: ${vip.checkin_code ?? '-'}`);
             setShowAddVIP(false);
             setVipForm({ name: '', email: '', phone: '' });
             await loadEventData(selectedEvent.id);
         } catch (err) {
-            showMessage('error', err.response?.data?.message || 'Gagal menambah VIP');
-        } finally {
-            setActionLoading(false);
-        }
-    };
-
-    const handleOpenRegistration = async () => {
-        if (!selectedEvent) return;
-        setActionLoading(true);
-        try {
-            await eventService.openRegistration(selectedEvent.id);
-            showMessage('success', 'Pendaftaran dibuka / Registration opened');
-            await loadEvents();
-        } catch (err) {
-            showMessage('error', err.response?.data?.message || 'Gagal membuka pendaftaran');
-        } finally {
-            setActionLoading(false);
-        }
-    };
-
-    const handleCloseRegistration = async () => {
-        if (!selectedEvent) return;
-        setActionLoading(true);
-        try {
-            await eventService.closeRegistration(selectedEvent.id);
-            showMessage('success', 'Pendaftaran ditutup / Registration closed');
-            await loadEvents();
-        } catch (err) {
-            showMessage('error', err.response?.data?.message || 'Gagal menutup pendaftaran');
+            showMessage('error', err.response?.data?.message || 'Gagal daftar VIP');
         } finally {
             setActionLoading(false);
         }
@@ -202,51 +199,74 @@ const AdminDashboard = () => {
     const handleCheckIn = async (participantId) => {
         try {
             await participantService.checkIn(selectedEvent.id, participantId);
-            showMessage('success', 'Check-in berjaya / Check-in successful');
+            showMessage('success', 'Daftar masuk berjaya / Check-in successful');
             await loadEventData(selectedEvent.id);
-        } catch (err) {
-            showMessage('error', err.response?.data?.message || 'Gagal check-in');
-        }
-    };
-
-    const handleArchiveEvent = async (eventId) => {
-        if (!window.confirm('Archive acara ini? / Archive this event?')) return;
-        try {
-            await eventService.archive(eventId);
-            showMessage('success', 'Acara diarkibkan / Event archived');
-            await loadEvents();
         } catch {
-            showMessage('error', 'Gagal mengarkibkan acara / Failed to archive event');
+            showMessage('error', 'Gagal daftar masuk / Failed to check-in');
         }
     };
 
-    // ─── Delete Participant Handlers ─────────────────────────────
     const handleDeleteParticipant = async (participantId) => {
-        if (!window.confirm('Padam peserta ini? / Delete this participant?')) return;
+        if (!window.confirm('Padam peserta ini? Keputusan cabutan mereka juga akan dipadam.')) return;
         try {
             await participantService.deleteOne(selectedEvent.id, participantId);
             showMessage('success', 'Peserta dipadam / Participant deleted');
             await loadEventData(selectedEvent.id);
-        } catch (err) {
-            showMessage('error', err.response?.data?.message || 'Gagal memadam peserta');
+        } catch {
+            showMessage('error', 'Gagal memadam peserta / Failed to delete participant');
         }
     };
 
+    // Full reset: closes open draw sessions, deletes results and all participants
     const handleDeleteAllParticipants = async () => {
         try {
             await participantService.deleteAll(selectedEvent.id);
             showMessage('success', 'Semua peserta dipadam / All participants deleted');
             await loadEventData(selectedEvent.id);
-        } catch (err) {
-            showMessage('error', err.response?.data?.message || 'Gagal memadam semua peserta');
+        } catch {
+            showMessage('error', 'Gagal memadam peserta / Failed to delete participants');
         }
     };
 
-    const handleGoToLobby = () => {
-        if (!selectedEvent) return;
-        navigate(`/lobby/${selectedEvent.id}`);
+    const handleOpenRegistration = async () => {
+        setActionLoading(true);
+        try {
+            await eventService.openRegistration(selectedEvent.id, regDuration);
+            showMessage('success', 'Pendaftaran dibuka / Registration opened');
+            await loadEvents();
+        } catch {
+            showMessage('error', 'Gagal buka pendaftaran');
+        } finally {
+            setActionLoading(false);
+        }
     };
 
+    const handleCloseRegistration = async () => {
+        setActionLoading(true);
+        try {
+            await eventService.closeRegistration(selectedEvent.id);
+            showMessage('success', 'Pendaftaran ditutup / Registration closed');
+            await loadEvents();
+        } catch {
+            showMessage('error', 'Gagal tutup pendaftaran');
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleArchiveEvent = async (id) => {
+        if (!window.confirm('Archive acara ini? / Archive this event?')) return;
+        try {
+            await eventService.archive(id);
+            showMessage('success', 'Acara diarkib / Event archived');
+            if (selectedEvent?.id === id) setSelectedEvent(null);
+            await loadEvents();
+        } catch {
+            showMessage('error', 'Gagal arkib acara');
+        }
+    };
+
+    // ─── Render ───────────────────────────────────────────────────
     return (
         <div className="min-h-screen bg-gray-900 text-white flex flex-col font-sans">
 
@@ -258,10 +278,10 @@ const AdminDashboard = () => {
                     </h1>
                     {selectedEvent && (
                         <button
-                            onClick={handleGoToLobby}
+                            onClick={() => navigate(`/lobby/${selectedEvent.id}`)}
                             className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors animate-pulse"
                         >
-                            🎲 Mula Sesi / Start Session
+                            🎲 Mula Draw / Start Draw
                         </button>
                     )}
                 </div>
@@ -281,10 +301,11 @@ const AdminDashboard = () => {
 
                 {/* Global Message */}
                 {message && (
-                    <div className={`mb-6 p-4 rounded-lg text-sm font-medium ${message.type === 'error'
+                    <div className={`mb-6 p-4 rounded-lg text-sm font-medium ${
+                        message.type === 'error'
                             ? 'bg-red-500/10 border border-red-500/50 text-red-500'
                             : 'bg-green-500/10 border border-green-500/50 text-green-500'
-                        }`}>
+                    }`}>
                         {message.text}
                     </div>
                 )}
@@ -310,11 +331,12 @@ const AdminDashboard = () => {
                         <div className="mt-4 flex justify-end">
                             <button
                                 disabled={!selectedEvent}
-                                onClick={handleGoToLobby}
-                                className={`px-5 py-2.5 font-bold rounded-lg transition-all flex items-center gap-2 ${selectedEvent
-                                        ? 'bg-yellow-600 hover:bg-yellow-500 text-white shadow-[0_0_15px_rgba(202,138,4,0.3)] hover:scale-105'
+                                onClick={() => navigate(`/lobby/${selectedEvent.id}`)}
+                                className={`px-4 py-2 font-bold rounded-lg transition-colors ${
+                                    selectedEvent
+                                        ? 'bg-yellow-600 hover:bg-yellow-500 text-white'
                                         : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                    }`}
+                                }`}
                             >
                                 🎲 Mula Sesi Cabutan / Start Draw Session
                             </button>
@@ -333,10 +355,11 @@ const AdminDashboard = () => {
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === tab.id
+                            className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                                activeTab === tab.id
                                     ? 'border-yellow-500 text-yellow-500'
                                     : 'border-transparent text-gray-400 hover:text-white hover:border-gray-600'
-                                }`}
+                            }`}
                         >
                             {tab.label}
                         </button>
@@ -363,7 +386,7 @@ const AdminDashboard = () => {
                                     selectedEvent={selectedEvent}
                                     prizes={prizes}
                                     onAddPrize={() => {
-                                        setPrizeForm({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', id: null });
+                                        setPrizeForm({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', is_mystery: false, id: null });
                                         setShowAddPrize(true);
                                     }}
                                     onEditPrize={handleEditPrize}
@@ -383,6 +406,9 @@ const AdminDashboard = () => {
                             {activeTab === 'registration' && (
                                 <RegistrationTab
                                     selectedEvent={selectedEvent}
+                                    timeLeft={timeLeft}
+                                    regDuration={regDuration}
+                                    setRegDuration={setRegDuration}
                                     onOpenRegistration={handleOpenRegistration}
                                     onCloseRegistration={handleCloseRegistration}
                                     actionLoading={actionLoading}

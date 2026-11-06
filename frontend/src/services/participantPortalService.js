@@ -1,28 +1,47 @@
-import api from './api';
+// participantPortalService.js — Public participant portal (no login).
+// Uses database functions so anon users never read the tables directly.
+import { supabase, check } from './supabaseClient';
 
 const participantPortalService = {
+    // Event info for /daftar/:eventId (includes draw_started)
+    async getEventById(eventId) {
+        const data = check(await supabase.rpc('get_public_event', { p_event_id: Number(eventId) }));
+        if (!data) throw new Error('Event tidak ditemui / Event not found');
+        return data;
+    },
 
-    async register(data) {
-        const response = await api.post('/participant/register', data);
-        return response.data.data;
+    // Event open for registration, or null
+    async getActiveEvent() {
+        return check(await supabase.rpc('get_active_event'));
+    },
+
+    async register({ event_id, name, phone, email }) {
+        return check(await supabase.rpc('register_participant', {
+            p_event_id: Number(event_id),
+            p_name: name,
+            p_phone: phone,
+            p_email: email || null,
+        }));
     },
 
     async login(name, phone) {
-        const response = await api.post('/participant/login', { name, phone });
-        return response.data.data;
+        return check(await supabase.rpc('participant_login', { p_name: name, p_phone: phone }));
     },
 
-    async getActiveEvent() {
-        const response = await api.get('/participant/active-event');
-        return response.data.data; // null if no active event
+    // VIP check-in: returns { status: 'success' | 'already', name }
+    async checkIn(eventId, email, code) {
+        return check(await supabase.rpc('participant_checkin', {
+            p_event_id: Number(eventId),
+            p_email: email,
+            p_code: code,
+        }));
     },
 
     async getCompletedEvents() {
-        const response = await api.get('/participant/events/completed');
-        return response.data.data;
+        return check(await supabase.rpc('get_completed_events')) ?? [];
     },
 
-    // Session helpers — simpan dalam sessionStorage (cleared bila tab tutup)
+    // Session helpers — sessionStorage (cleared when tab closes)
     saveSession(participant) {
         sessionStorage.setItem('participant', JSON.stringify(participant));
     },
@@ -38,7 +57,7 @@ const participantPortalService = {
 
     isLoggedIn() {
         return !!sessionStorage.getItem('participant');
-    }
+    },
 };
 
 export default participantPortalService;

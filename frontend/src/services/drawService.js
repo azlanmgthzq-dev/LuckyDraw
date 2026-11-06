@@ -1,27 +1,52 @@
-import api from './api';
+// drawService.js — Draw logic. Start + draw run as database functions
+// (see supabase/supabase_setup.sql) so they are atomic and admin-only.
+import { supabase, check } from './supabaseClient';
 
 const drawService = {
+    async startSession(eventId) {
+        return check(await supabase.rpc('start_draw_session', { p_event_id: Number(eventId) }));
+    },
 
-  async startSession(eventId) {
-    const response = await api.post(`/events/${eventId}/draw-session/start`);
-    return response.data.data;
-  },
+    async endSession(eventId) {
+        const rows = check(await supabase
+            .from('draw_sessions')
+            .update({ ended_at: new Date().toISOString() })
+            .eq('event_id', eventId)
+            .is('ended_at', null)
+            .select());
+        if (!rows.length) {
+            const err = new Error('No active draw session found');
+            err.response = { data: { message: err.message } };
+            throw err;
+        }
+        return rows[0];
+    },
 
-  async endSession(eventId) {
-    const response = await api.post(`/events/${eventId}/draw-session/end`);
-    return response.data.data;
-  },
+    // Returns { winner_index, total_winners, winner: {id,name,email}, prize: {...}, all_prizes_completed, ... }
+    async draw(prizeId) {
+        return check(await supabase.rpc('draw_winner', { p_prize_id: Number(prizeId) }));
+    },
 
-  async draw(prizeId) {
-    const response = await api.post(`/prizes/${prizeId}/draw`);
-    return response.data.data;
-  },
+    async getResults(eventId) {
+        const rows = check(await supabase
+            .from('draw_results')
+            .select('id, winner_index, drawn_at, participant_id, participants ( name, email ), prizes ( title, image_url, prize_order )')
+            .eq('event_id', eventId));
 
-  async getResults(eventId) {
-    const response = await api.get(`/events/${eventId}/results`);
-    return response.data.data;
-  },
-
+        return rows
+            .map(r => ({
+                id: r.id,
+                winner_index: r.winner_index,
+                drawn_at: r.drawn_at,
+                participant_id: r.participant_id,
+                winner_name: r.participants?.name,
+                winner_email: r.participants?.email,
+                prize_title: r.prizes?.title,
+                prize_image: r.prizes?.image_url,
+                prize_order: r.prizes?.prize_order,
+            }))
+            .sort((a, b) => (a.prize_order - b.prize_order) || (a.winner_index - b.winner_index));
+    },
 };
 
 export default drawService;

@@ -19,11 +19,11 @@ const AddPrizeModal = ({ prizeForm, setPrizeForm, onSubmit, onClose, actionLoadi
 
         try {
             const result = await uploadService.uploadImage(file);
-            // Replace local preview with real Cloudinary URL
+            // Replace local preview with the uploaded image URL
             setImagePreview(result.url);
             setPrizeForm(prev => ({ ...prev, image_url: result.url }));
         } catch (err) {
-            setUploadError('Gagal muat naik gambar. Cuba lagi. / Upload failed. Try again.');
+            setUploadError(err.message || 'Gagal muat naik gambar. Cuba lagi. / Upload failed. Try again.');
             setImagePreview(prizeForm.image_url || null);
         } finally {
             setImageUploading(false);
@@ -107,6 +107,18 @@ const AddPrizeModal = ({ prizeForm, setPrizeForm, onSubmit, onClose, actionLoadi
                             <option value="scripted">Scripted (Ditetapkan)</option>
                         </select>
                     </div>
+
+                    {/* Mystery Prize */}
+                    <label className="flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 cursor-pointer hover:border-purple-500 transition-colors">
+                        <input
+                            type="checkbox"
+                            checked={!!prizeForm.is_mystery}
+                            onChange={e => setPrizeForm({ ...prizeForm, is_mystery: e.target.checked })}
+                            className="w-4 h-4 accent-purple-500"
+                        />
+                        <span className="text-sm text-white font-medium">Hadiah Misteri 🎁</span>
+                        <span className="text-xs text-gray-500 ml-auto">Nama &amp; gambar disembunyikan sehingga pemenang diumumkan</span>
+                    </label>
 
                     {/* Image Upload */}
                     <div>

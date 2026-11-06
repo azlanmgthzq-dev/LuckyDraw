@@ -6,6 +6,7 @@ import LobbyScreen from './pages/LobbyScreen';
 import DrawScreen from './pages/DrawScreen';
 import ParticipantPortal from './pages/participant/ParticipantPortal';
 import ParticipantRegister from './pages/participant/ParticipantRegister';
+import CheckInPage from './pages/participant/CheckInPage';
 
 // Protected route wrapper (admin only)
 const ProtectedRoute = ({ children }) => {
@@ -49,6 +50,9 @@ function AppRoutes() {
       {/* Participant — registration page via QR code scan */}
       {/* URL: /daftar/:eventId  — peserta scan QR → terus ke form daftar */}
       <Route path="/daftar/:eventId" element={<ParticipantRegister />} />
+
+      {/* VIP — check-in with email + code */}
+      <Route path="/checkin/:eventId" element={<CheckInPage />} />
 
       {/* Participant — old portal (results & login) — kept for backwards compat */}
       <Route path="/participantentries" element={<ParticipantPortal />} />

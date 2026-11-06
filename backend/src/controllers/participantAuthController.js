@@ -6,6 +6,7 @@ const pool = require('../config/database');
 const participantAuthController = {
 
     // POST /api/participant/register
+    // Register semasa registration window open
     async register(req, res, next) {
         try {
             const { name, email, phone, event_id } = req.body;
@@ -17,6 +18,7 @@ const participantAuthController = {
                 });
             }
 
+            // Check event exists
             const event = await EventModel.findById(event_id);
             if (!event) {
                 return res.status(404).json({
@@ -25,6 +27,7 @@ const participantAuthController = {
                 });
             }
 
+            // Check registration is open
             if (!event.registration_open) {
                 return res.status(400).json({
                     success: false,
@@ -32,11 +35,21 @@ const participantAuthController = {
                 });
             }
 
+            // Check draw session not started
             const activeSession = await DrawModel.getActiveSession(event_id);
             if (activeSession) {
                 return res.status(400).json({
                     success: false,
                     message: 'Sesi cabutan telah bermula. Pendaftaran ditutup / Draw session has started'
+                });
+            }
+
+            // Check registration not expired
+            if (new Date() > new Date(event.registration_closes_at)) {
+                await EventModel.closeRegistration(event_id);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Tempoh pendaftaran telah tamat / Registration period has ended'
                 });
             }
 
@@ -52,6 +65,7 @@ const participantAuthController = {
                 });
             }
 
+            // Check duplicate email if provided
             if (email) {
                 const existingEmail = await ParticipantModel.findByEmail(event_id, email);
                 if (existingEmail) {
@@ -84,6 +98,7 @@ const participantAuthController = {
     },
 
     // POST /api/participant/login
+    // Login guna nama + phone — boleh bila-bila masa
     async login(req, res, next) {
         try {
             const { name, phone } = req.body;
@@ -95,6 +110,7 @@ const participantAuthController = {
                 });
             }
 
+            // Find participant by phone (across all events)
             const result = await pool.query(
                 `SELECT * FROM participants 
                  WHERE phone = $1 AND LOWER(name) = LOWER($2)
@@ -130,6 +146,7 @@ const participantAuthController = {
     },
 
     // GET /api/participant/events/completed
+    // Semua event yang dah tamat beserta pemenang
     async getCompletedEvents(req, res, next) {
         try {
             const result = await pool.query(
@@ -184,66 +201,32 @@ const participantAuthController = {
     },
 
     // GET /api/participant/active-event
+    // Cek ada tak event active untuk register
     async getActiveEvent(req, res, next) {
         try {
             const result = await pool.query(
                 `SELECT id, name, description, event_date, registration_open, registration_closes_at
                  FROM events
                  WHERE registration_open = TRUE
+                 AND registration_closes_at > NOW()
                  AND is_archived = FALSE
-                 ORDER BY created_at DESC
+                 ORDER BY registration_closes_at ASC
                  LIMIT 1`
             );
 
             const event = result.rows[0];
 
+            // Also check if draw session has started
             if (event) {
                 const session = await DrawModel.getActiveSession(event.id);
                 if (session) {
-                    return res.json({ success: true, data: null });
+                    return res.json({ success: true, data: null }); // draw started, no registration
                 }
             }
 
             res.json({
                 success: true,
                 data: event || null
-            });
-
-        } catch (err) {
-            next(err);
-        }
-    },
-
-    // GET /api/participant/event/:eventId
-    // Public — fetch event info by ID for the registration page
-    async getEventById(req, res, next) {
-        try {
-            const { eventId } = req.params;
-
-            const result = await pool.query(
-                `SELECT id, name, description, event_date, registration_open
-                 FROM events
-                 WHERE id = $1 AND is_archived = FALSE`,
-                [eventId]
-            );
-
-            const event = result.rows[0];
-            if (!event) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Event tidak ditemui / Event not found'
-                });
-            }
-
-            // Check if draw has started
-            const session = await DrawModel.getActiveSession(eventId);
-
-            res.json({
-                success: true,
-                data: {
-                    ...event,
-                    draw_started: !!session
-                }
             });
 
         } catch (err) {

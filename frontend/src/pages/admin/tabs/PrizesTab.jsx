@@ -51,6 +51,11 @@ const PrizesTab = ({ selectedEvent, prizes, onAddPrize, onEditPrize, onDeletePri
                                             #{prize.prize_order}
                                         </span>
                                         <h3 className="font-bold text-white text-lg">{prize.title}</h3>
+                                        {prize.is_mystery && (
+                                            <span className="bg-purple-600/30 text-purple-300 border border-purple-500/40 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                                                🎁 Misteri
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="text-sm text-gray-400 flex items-center gap-3">
                                         <span>🏆 {prize.winner_count} Winners</span>

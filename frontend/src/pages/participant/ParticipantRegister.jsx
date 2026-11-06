@@ -1,27 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+import participantPortalService from '../../services/participantPortalService';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function fetchEvent(eventId) {
-    const res = await fetch(`${API_BASE}/participant/event/${eventId}`);
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
-    return json.data;
-}
-
-async function submitRegister({ name, phone, email, event_id }) {
-    const res = await fetch(`${API_BASE}/participant/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, email, event_id }),
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
-    return json.data;
-}
+const fetchEvent = (eventId) => participantPortalService.getEventById(eventId);
+const submitRegister = (data) => participantPortalService.register(data);
 
 // ─── Views ───────────────────────────────────────────────────────────────────
 
@@ -265,17 +250,11 @@ const ParticipantRegister = () => {
     };
 
     return (
-        <div
-            className="min-h-screen relative flex flex-col items-center justify-center px-6 py-10"
-            style={{
-                backgroundImage: "url('/LandscapeBg2.png')",
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                backgroundRepeat: 'no-repeat',
-            }}
-        >
-            {/* Overlay */}
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
+        <div className="min-h-screen relative flex flex-col items-center justify-center px-6 py-10 bg-slate-950 overflow-hidden">
+            {/* Ambient Background Glows */}
+            <div className="absolute top-[-10%] left-[-10%] w-[400px] h-[400px] sm:w-[500px] sm:h-[500px] bg-yellow-500/20 rounded-full blur-[100px] sm:blur-[120px] pointer-events-none animate-pulse" style={{ animationDuration: '4s' }} />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] sm:w-[600px] sm:h-[600px] bg-red-600/20 rounded-full blur-[120px] sm:blur-[150px] pointer-events-none animate-pulse" style={{ animationDuration: '6s' }} />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] sm:w-[800px] sm:h-[800px] bg-orange-500/10 rounded-full blur-[100px] sm:blur-[120px] pointer-events-none" />
 
             {/* Header */}
             <div className="relative z-10 mb-8 text-center">

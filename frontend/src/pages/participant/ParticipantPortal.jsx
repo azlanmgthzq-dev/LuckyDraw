@@ -519,28 +519,19 @@ const ParticipantPortal = () => {
 
     if (checkingSession) {
         return (
-            <div
-                className="min-h-screen flex items-center justify-center"
-                style={{ backgroundImage: "url('/PotraitBg.png')", backgroundSize: 'cover', backgroundPosition: 'center' }}
-            >
-                <div className="absolute inset-0 bg-black/50" />
+            <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-yellow-500/10 rounded-full blur-[80px] pointer-events-none" />
                 <div className="relative text-yellow-500 animate-pulse text-lg font-bold">Memuatkan...</div>
             </div>
         );
     }
 
     return (
-        <div
-            className="min-h-screen relative flex flex-col items-center justify-center px-6 py-10"
-            style={{
-                backgroundImage: "url('/PotraitBg.png')",
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                backgroundRepeat: 'no-repeat',
-            }}
-        >
-            {/* Overlay */}
-            <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px]" />
+        <div className="min-h-screen relative flex flex-col items-center justify-center px-6 py-10 bg-slate-950 overflow-hidden">
+            {/* Ambient Background Glows */}
+            <div className="absolute top-[-5%] left-[-10%] w-[350px] h-[350px] sm:w-[500px] sm:h-[500px] bg-yellow-500/15 rounded-full blur-[100px] sm:blur-[120px] pointer-events-none animate-pulse" style={{ animationDuration: '5s' }} />
+            <div className="absolute bottom-[-5%] right-[-10%] w-[400px] h-[400px] sm:w-[600px] sm:h-[600px] bg-red-600/15 rounded-full blur-[120px] sm:blur-[150px] pointer-events-none animate-pulse" style={{ animationDuration: '7s' }} />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] sm:w-[800px] sm:h-[800px] bg-orange-500/10 rounded-full blur-[100px] sm:blur-[120px] pointer-events-none" />
 
             {/* Content */}
             <div className="relative z-10 w-full flex flex-col items-center">

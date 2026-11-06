@@ -128,6 +128,27 @@ const ParticipantModel = {
     return result.rowCount;
   },
 
+  // Full reset — delete participants + draw_results + close draw_sessions
+  async resetEvent(eventId) {
+    // Close any open draw sessions
+    await pool.query(
+      `UPDATE draw_sessions SET ended_at = NOW() 
+       WHERE event_id = $1 AND ended_at IS NULL`,
+      [eventId]
+    );
+    // Delete draw results
+    await pool.query(
+      'DELETE FROM draw_results WHERE event_id = $1',
+      [eventId]
+    );
+    // Delete participants (scripted_winners cascade auto)
+    const result = await pool.query(
+      'DELETE FROM participants WHERE event_id = $1',
+      [eventId]
+    );
+    return result.rowCount;
+  },
+
 };
 
 module.exports = ParticipantModel;

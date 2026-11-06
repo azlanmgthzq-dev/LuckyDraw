@@ -155,12 +155,12 @@ const participantController = {
         return res.status(404).json({ success: false, message: 'Event not found' });
       }
 
-      // draw_results will auto-cascade delete due to ON DELETE CASCADE in schema
-      const count = await ParticipantModel.deleteByEvent(eventId);
+      // Reset event — close sessions + delete draw_results + delete participants
+      const count = await ParticipantModel.resetEvent(eventId);
 
       res.json({
         success: true,
-        message: `${count} peserta dipadam / participants deleted`,
+        message: `${count} peserta dipadam, sesi dan keputusan cabutan diset semula`,
         data: { deleted: count }
       });
 

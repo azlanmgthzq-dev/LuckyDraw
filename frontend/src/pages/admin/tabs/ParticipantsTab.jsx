@@ -112,7 +112,17 @@ const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onD
                                 <td className="p-4">
                                     <div className="flex flex-col items-start gap-1">
                                         {p.is_pre_registered && (
-                                            <span className="bg-purple-500/20 text-purple-400 text-[10px] px-2 py-0.5 rounded uppercase">VIP</span>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="bg-purple-500/20 text-purple-400 text-[10px] px-2 py-0.5 rounded uppercase">VIP</span>
+                                                {p.checkin_code && (
+                                                    <span className="font-mono text-[11px] text-gray-300 bg-gray-800 border border-gray-700 px-1.5 py-0.5 rounded" title="Kod check-in">
+                                                        {p.checkin_code}
+                                                    </span>
+                                                )}
+                                                <span className={`text-[10px] ${p.checked_in ? 'text-green-400' : 'text-gray-500'}`}>
+                                                    {p.checked_in ? '✔ Hadir' : 'Belum hadir'}
+                                                </span>
+                                            </div>
                                         )}
                                         {p.is_winner ? (
                                             <span className="bg-yellow-500/20 text-yellow-400 text-[10px] px-2 py-0.5 rounded uppercase">Pemenang</span>

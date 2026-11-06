@@ -128,10 +128,14 @@ const LobbyScreen = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-950 text-white flex flex-col overflow-hidden">
+        <div className="min-h-screen bg-slate-950 text-white flex flex-col overflow-hidden relative">
+            {/* Ambient Background Glows */}
+            <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-yellow-500/10 rounded-full blur-[120px] pointer-events-none animate-pulse" style={{ animationDuration: '4s' }} />
+            <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-red-600/10 rounded-full blur-[150px] pointer-events-none animate-pulse" style={{ animationDuration: '6s' }} />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-orange-500/5 rounded-full blur-[150px] pointer-events-none" />
 
             {/* TOP BAR */}
-            <header className="flex items-center justify-between px-6 py-4 bg-black/60 border-b border-yellow-500/20 backdrop-blur-sm">
+            <header className="relative z-10 flex items-center justify-between px-6 py-4 bg-black/20 border-b border-white/5 backdrop-blur-md">
                 <button onClick={handleBack} className="text-gray-400 hover:text-white text-sm flex items-center gap-1 transition-colors">
                     ← Dashboard
                 </button>
@@ -140,10 +144,10 @@ const LobbyScreen = () => {
             </header>
 
             {/* MAIN */}
-            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+            <div className="relative z-10 flex-1 flex flex-col lg:flex-row overflow-hidden">
 
                 {/* ── LEFT PANEL: QR + Controls ── */}
-                <div className="lg:w-72 xl:w-80 bg-black/40 border-r border-white/5 flex flex-col p-5 gap-4 shrink-0 overflow-y-auto">
+                <div className="lg:w-72 xl:w-80 bg-white/[0.02] border-r border-white/5 flex flex-col p-5 gap-4 shrink-0 overflow-y-auto backdrop-blur-sm">
 
                     {/* Event name */}
                     <div>
