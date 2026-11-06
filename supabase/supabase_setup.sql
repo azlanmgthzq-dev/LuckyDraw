@@ -466,6 +466,20 @@ CREATE POLICY "Admin delete prizes" ON storage.objects
     FOR DELETE TO authenticated USING (bucket_id = 'prizes' AND public.is_admin());
 
 -- ------------------------------------------------------------
+-- 7. REALTIME — lobby updates live when a VIP checks in
+-- RLS still applies: only admins receive participant changes.
+-- ------------------------------------------------------------
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'participants'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE participants;
+    END IF;
+END $$;
+
+-- ------------------------------------------------------------
 -- ADD AN ADMIN
 -- 1. Supabase > Authentication > Users > Add user (email + password)
 -- 2. Then run (same email):

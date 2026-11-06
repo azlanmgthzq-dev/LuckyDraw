@@ -3,8 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import eventService from '../services/eventService';
 import participantService from '../services/participantService';
 import drawService from '../services/drawService';
+import { supabase } from '../services/supabaseClient';
 
-const POLL_INTERVAL = 3000;
+// Realtime is the main update path; polling is a slow fallback
+const POLL_INTERVAL = 20000;
+
+// Present = VIP who has checked in, or someone who registered on site via QR
+const isPresent = (p) => p.checked_in || !p.is_pre_registered;
 
 const LobbyScreen = () => {
     const { eventId } = useParams();
@@ -17,12 +22,13 @@ const LobbyScreen = () => {
     const [error, setError] = useState('');
     const [newEntries, setNewEntries] = useState(new Set());
     const [copied, setCopied] = useState(false);
+    const [realtimeOn, setRealtimeOn] = useState(false);
 
-    const prevIdsRef = useRef(new Set());
+    const prevIdsRef = useRef(null); // ids present at last fetch (null = first load)
     const pollRef = useRef(null);
 
     // Registration URL for participants
-    const registrationUrl = `${window.location.origin}/daftar/${eventId}`;
+    const registrationUrl = `${window.location.origin}/checkin/${eventId}`;
 
     // QR code via qrserver.com — no install needed
     const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(registrationUrl)}`;
@@ -51,12 +57,15 @@ const LobbyScreen = () => {
             const data = await participantService.getAll(eventId);
             const incoming = Array.isArray(data) ? data : (data.data ?? []);
 
-            const incomingIds = new Set(incoming.map(p => p.id));
+            // Highlight anyone who just arrived (new or newly checked in), not on first load
+            const presentIds = new Set(incoming.filter(isPresent).map(p => p.id));
             const fresh = new Set();
-            incomingIds.forEach(id => {
-                if (!prevIdsRef.current.has(id)) fresh.add(id);
-            });
-            prevIdsRef.current = incomingIds;
+            if (prevIdsRef.current) {
+                presentIds.forEach(id => {
+                    if (!prevIdsRef.current.has(id)) fresh.add(id);
+                });
+            }
+            prevIdsRef.current = presentIds;
 
             if (fresh.size > 0) {
                 setNewEntries(prev => new Set([...prev, ...fresh]));
@@ -79,6 +88,28 @@ const LobbyScreen = () => {
         pollRef.current = setInterval(fetchParticipants, POLL_INTERVAL);
         return () => clearInterval(pollRef.current);
     }, [fetchParticipants]);
+
+    // ── Realtime: refetch when any participant of this event changes ──
+    useEffect(() => {
+        const channel = supabase
+            .channel(`lobby-participants-${eventId}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'participants', filter: `event_id=eq.${eventId}` },
+                () => fetchParticipants()
+            )
+            // DELETE events can't be filtered by event_id, so listen to all deletes
+            .on(
+                'postgres_changes',
+                { event: 'DELETE', schema: 'public', table: 'participants' },
+                () => fetchParticipants()
+            )
+            .subscribe((status) => setRealtimeOn(status === 'SUBSCRIBED'));
+
+        return () => { supabase.removeChannel(channel); };
+    }, [eventId, fetchParticipants]);
+
+    const presentCount = participants.filter(isPresent).length;
 
     // ── Toggle registration ───────────────────────────────────────
     const handleToggleRegistration = async () => {
@@ -105,8 +136,8 @@ const LobbyScreen = () => {
 
     // ── Start Draw ────────────────────────────────────────────────
     const handleStartDraw = async () => {
-        if (participants.length === 0) {
-            setError('Tiada peserta. Sila tunggu peserta mendaftar dulu.');
+        if (presentCount === 0) {
+            setError('Belum ada peserta yang check-in.');
             return;
         }
         setStarting(true);
@@ -140,7 +171,10 @@ const LobbyScreen = () => {
                     ← Dashboard
                 </button>
                 <div className="text-yellow-400 font-black text-lg tracking-wide">🎯 PRE-DRAW LOBBY</div>
-                <div className="text-xs text-gray-500 font-mono">Live • {POLL_INTERVAL / 1000}s</div>
+                <div className="text-xs text-gray-500 font-mono flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${realtimeOn ? 'bg-green-400 animate-pulse' : 'bg-yellow-500'}`} />
+                    {realtimeOn ? 'Live' : `Polling • ${POLL_INTERVAL / 1000}s`}
+                </div>
             </header>
 
             {/* MAIN */}
@@ -166,7 +200,7 @@ const LobbyScreen = () => {
                     <div className="bg-white rounded-2xl p-4 flex flex-col items-center gap-2 shadow-[0_0_30px_rgba(234,179,8,0.15)]">
                         <img
                             src={qrImageUrl}
-                            alt="QR Code Pendaftaran"
+                            alt="QR Code Check-In"
                             className="w-44 h-44 rounded-lg"
                             onError={(e) => {
                                 e.target.style.display = 'none';
@@ -178,8 +212,8 @@ const LobbyScreen = () => {
                             QR tidak dapat dimuatkan. Guna link di bawah.
                         </div>
                         <div className="text-center">
-                            <div className="text-black font-black text-sm">Imbas untuk Daftar</div>
-                            <div className="text-gray-500 text-[10px]">Scan to Register</div>
+                            <div className="text-black font-black text-sm">Imbas untuk Check-In</div>
+                            <div className="text-gray-500 text-[10px]">Scan to Check-In</div>
                         </div>
                     </div>
 
@@ -203,15 +237,22 @@ const LobbyScreen = () => {
                     {/* Live Counter */}
                     <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-center">
                         <div className="text-xs text-yellow-300/60 uppercase tracking-widest mb-0.5">Peserta Hadir</div>
-                        <div
-                            className="text-6xl font-black text-yellow-400 tabular-nums transition-all duration-300"
-                            key={participants.length}
-                        >
-                            {participants.length}
+                        <div className="tabular-nums transition-all duration-300" key={presentCount}>
+                            <span className="text-6xl font-black text-yellow-400">{presentCount}</span>
+                            <span className="text-2xl font-bold text-yellow-400/50"> / {participants.length}</span>
                         </div>
+                        <div className="text-xs font-bold text-yellow-300/80 mt-1">Hadir</div>
+                        {participants.length > 0 && (
+                            <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-gradient-to-r from-green-500 to-yellow-400 transition-all duration-700"
+                                    style={{ width: `${(presentCount / participants.length) * 100}%` }}
+                                />
+                            </div>
+                        )}
                         <div className="text-[10px] text-gray-500 mt-1 flex items-center justify-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-                            Live
+                            {realtimeOn ? 'Live' : 'Auto-refresh'}
                         </div>
                     </div>
 
@@ -256,8 +297,8 @@ const LobbyScreen = () => {
                         </p>
                         <button
                             onClick={handleStartDraw}
-                            disabled={starting || participants.length === 0}
-                            className={`w-full py-4 rounded-2xl text-xl font-black tracking-wide transition-all duration-200 ${starting || participants.length === 0
+                            disabled={starting || presentCount === 0}
+                            className={`w-full py-4 rounded-2xl text-xl font-black tracking-wide transition-all duration-200 ${starting || presentCount === 0
                                     ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                     : 'bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white shadow-[0_8px_30px_rgba(220,38,38,0.4)] hover:scale-[1.03] active:scale-95'
                                 }`}
@@ -290,7 +331,7 @@ const LobbyScreen = () => {
                                 <div className="text-7xl opacity-20">👥</div>
                                 <div className="text-center">
                                     <p className="text-base font-semibold">Menunggu peserta...</p>
-                                    <p className="text-sm mt-1 text-gray-700">Tunjukkan QR code kepada peserta untuk mendaftar</p>
+                                    <p className="text-sm mt-1 text-gray-700">Tunjukkan QR code kepada peserta untuk check-in</p>
                                 </div>
                             </div>
                         ) : (
@@ -333,18 +374,29 @@ function getInitials(name = '') {
 }
 
 function ParticipantCard({ participant, index, isNew }) {
+    const present = isPresent(participant);
     return (
         <div className={`
-            relative rounded-2xl border bg-gradient-to-br ${CARD_COLORS[index % CARD_COLORS.length]}
-            p-3 flex flex-col items-center gap-2 text-center transition-all duration-500
+            relative rounded-2xl border p-3 flex flex-col items-center gap-2 text-center transition-all duration-500
+            ${present
+                ? `bg-gradient-to-br ${CARD_COLORS[index % CARD_COLORS.length]}`
+                : 'bg-white/[0.03] border-white/10 opacity-50 grayscale'
+            }
             ${isNew
                 ? 'scale-110 shadow-[0_0_25px_rgba(234,179,8,0.6)] border-yellow-400/80 z-10'
                 : 'hover:scale-[1.03]'
             }
         `}>
-            {isNew && (
+            {isNew ? (
                 <span className="absolute -top-2 -right-2 bg-yellow-400 text-black text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg">
-                    NEW!
+                    HADIR!
+                </span>
+            ) : present && (
+                <span
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-green-500 text-white text-[11px] font-black rounded-full flex items-center justify-center shadow-lg"
+                    title="Sudah check-in"
+                >
+                    ✓
                 </span>
             )}
             <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-sm font-black text-white">
