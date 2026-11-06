@@ -5,6 +5,10 @@ import participantService from '../services/participantService';
 import drawService from '../services/drawService';
 import { supabase } from '../services/supabaseClient';
 import { isPresent } from '../utils/participants';
+import BrandingBar from '../components/BrandingBar';
+
+// Text on the right of the branding bar
+const EVENT_TAGLINE = "GTA Cowboy In The Sky ★ 28 November 2026";
 
 // Realtime is the main update path; polling is a slow fallback
 const POLL_INTERVAL = 20000;
@@ -144,7 +148,7 @@ const LobbyScreen = () => {
             await drawService.startSession(eventId);
             navigate(`/draw/${eventId}`);
         } catch (err) {
-            setError(err.response?.data?.message || 'Gagal memulakan sesi cabutan.');
+            setError(err.message || 'Gagal memulakan sesi cabutan.');
             setStarting(false);
         }
     };
@@ -156,37 +160,46 @@ const LobbyScreen = () => {
         navigate('/admin');
     };
 
-    return (
-        <div className="min-h-screen bg-slate-950 text-white flex flex-col overflow-hidden relative">
-            {/* Ambient Background Glows */}
-            <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-yellow-500/10 rounded-full blur-[120px] pointer-events-none animate-pulse" style={{ animationDuration: '4s' }} />
-            <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-red-600/10 rounded-full blur-[150px] pointer-events-none animate-pulse" style={{ animationDuration: '6s' }} />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-orange-500/5 rounded-full blur-[150px] pointer-events-none" />
+    const registrationOpen = !!eventData?.registration_open;
 
-            {/* TOP BAR */}
-            <header className="relative z-10 flex items-center justify-between px-6 py-4 bg-black/20 border-b border-white/5 backdrop-blur-md">
-                <button onClick={handleBack} className="text-gray-400 hover:text-white text-sm flex items-center gap-1 transition-colors">
+    return (
+        <div className="western-screen h-screen flex flex-col overflow-hidden">
+            <BrandingBar tagline={EVENT_TAGLINE} />
+
+            {/* Warm glow behind the title */}
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[700px] h-[400px] bg-west-gold/10 rounded-full blur-[140px] pointer-events-none animate-pulse" style={{ animationDuration: '6s' }} />
+
+            {/* HEADER */}
+            <header className="relative z-10 shrink-0 flex items-center justify-between gap-3 px-4 md:px-6 py-3 border-b border-west-border/30 bg-west-bg/60">
+                <button
+                    onClick={handleBack}
+                    className="font-oswald text-sm uppercase tracking-widest text-west-muted hover:text-west-gold transition-colors"
+                >
                     ← Dashboard
                 </button>
-                <div className="text-yellow-400 font-black text-lg tracking-wide">🎯 PRE-DRAW LOBBY</div>
-                <div className="text-xs text-gray-500 font-mono flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${realtimeOn ? 'bg-green-400 animate-pulse' : 'bg-yellow-500'}`} />
+                <h1 className="font-rye text-xl md:text-3xl text-west-gold flex items-center gap-2 md:gap-3 drop-shadow-[0_0_12px_rgba(212,160,23,0.35)]">
+                    <span className="text-west-border text-sm md:text-lg">★</span>
+                    🤠 THE ROUNDUP
+                    <span className="text-west-border text-sm md:text-lg">★</span>
+                </h1>
+                <div className="font-oswald text-xs uppercase tracking-widest text-west-muted flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${realtimeOn ? 'bg-west-teal animate-pulse' : 'bg-west-gold'}`} />
                     {realtimeOn ? 'Live' : `Polling • ${POLL_INTERVAL / 1000}s`}
                 </div>
             </header>
 
             {/* MAIN */}
-            <div className="relative z-10 flex-1 flex flex-col lg:flex-row overflow-hidden">
+            <div className="relative z-10 flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
 
                 {/* ── LEFT PANEL: QR + Controls ── */}
-                <div className="lg:w-72 xl:w-80 bg-white/[0.02] border-r border-white/5 flex flex-col p-5 gap-4 shrink-0 overflow-y-auto backdrop-blur-sm">
+                <aside className="lg:w-80 xl:w-96 shrink-0 flex flex-col gap-4 p-5 bg-west-surface/70 border-b lg:border-b-0 lg:border-r border-west-border/30 lg:overflow-y-auto">
 
                     {/* Event name */}
                     <div>
-                        <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Acara</div>
-                        <h1 className="text-xl font-black text-white leading-tight">{eventData?.name ?? '...'}</h1>
+                        <div className="font-oswald text-[10px] uppercase tracking-[0.3em] text-west-muted mb-1">✦ Acara ✦</div>
+                        <h2 className="font-rye text-2xl text-west-cream leading-tight">{eventData?.name ?? '...'}</h2>
                         {eventData?.event_date && (
-                            <div className="text-xs text-gray-400 mt-0.5">
+                            <div className="font-oswald text-sm uppercase tracking-wider text-west-gold/80 mt-1">
                                 📅 {new Date(eventData.event_date).toLocaleDateString('ms-MY', {
                                     day: 'numeric', month: 'long', year: 'numeric'
                                 })}
@@ -194,93 +207,90 @@ const LobbyScreen = () => {
                         )}
                     </div>
 
+                    <div className="rope-divider" />
+
                     {/* QR Code */}
-                    <div className="bg-white rounded-2xl p-4 flex flex-col items-center gap-2 shadow-[0_0_30px_rgba(234,179,8,0.15)]">
+                    <div className="rounded-xl p-4 flex flex-col items-center gap-2 bg-west-cream border-2 border-west-border shadow-[0_0_30px_rgba(212,160,23,0.2)]">
                         <img
                             src={qrImageUrl}
                             alt="QR Code Check-In"
-                            className="w-44 h-44 rounded-lg"
+                            className="w-44 h-44 rounded-md bg-white"
                             onError={(e) => {
                                 e.target.style.display = 'none';
                                 e.target.nextSibling.style.display = 'flex';
                             }}
                         />
                         {/* Fallback if API fails */}
-                        <div className="w-44 h-44 rounded-lg bg-gray-100 items-center justify-center text-gray-400 text-xs text-center p-4 hidden">
+                        <div className="w-44 h-44 rounded-md bg-white/60 items-center justify-center text-west-muted text-xs text-center p-4 hidden">
                             QR tidak dapat dimuatkan. Guna link di bawah.
                         </div>
                         <div className="text-center">
-                            <div className="text-black font-black text-sm">Imbas untuk Check-In</div>
-                            <div className="text-gray-500 text-[10px]">Scan to Check-In</div>
+                            <div className="font-rye text-base text-west-bg">Imbas untuk Check-In</div>
+                            <div className="font-oswald text-[10px] uppercase tracking-widest text-west-muted">Scan to Check-In</div>
                         </div>
                     </div>
 
                     {/* Copy link */}
                     <div className="flex gap-2">
-                        <div className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-[10px] text-gray-400 font-mono truncate flex items-center">
+                        <div className="flex-1 min-w-0 bg-west-bg/70 border border-west-border/40 rounded-lg px-3 py-2 text-[10px] text-west-muted font-mono truncate flex items-center">
                             {registrationUrl}
                         </div>
                         <button
                             onClick={handleCopyLink}
                             title="Copy link"
-                            className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all ${copied
-                                    ? 'bg-green-600 text-white scale-95'
-                                    : 'bg-white/10 hover:bg-white/20 text-gray-300'
-                                }`}
+                            className={`shrink-0 px-3 py-2 text-xs ${copied ? 'western-btn' : 'western-btn-secondary'}`}
                         >
                             {copied ? '✓ Copied' : '📋 Copy'}
                         </button>
                     </div>
 
                     {/* Live Counter */}
-                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-center">
-                        <div className="text-xs text-yellow-300/60 uppercase tracking-widest mb-0.5">Peserta Hadir</div>
-                        <div className="tabular-nums transition-all duration-300" key={presentCount}>
-                            <span className="text-6xl font-black text-yellow-400">{presentCount}</span>
-                            <span className="text-2xl font-bold text-yellow-400/50"> / {participants.length}</span>
+                    <div className="western-card p-5 text-center">
+                        <div className="font-rye text-7xl text-west-gold leading-none drop-shadow-[0_0_18px_rgba(212,160,23,0.4)]" key={presentCount}>
+                            {presentCount}
                         </div>
-                        <div className="text-xs font-bold text-yellow-300/80 mt-1">Hadir</div>
+                        <div className="font-rye text-xl text-west-cream mt-2">
+                            {presentCount === 1 ? 'COWBOY READY' : 'COWBOYS READY'}
+                        </div>
+                        <div className="font-oswald text-xs uppercase tracking-widest text-west-muted mt-1">
+                            daripada {participants.length} berdaftar
+                        </div>
                         {participants.length > 0 && (
-                            <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                            <div className="mt-3 h-2 bg-west-bg rounded-full overflow-hidden border border-west-border/40">
                                 <div
-                                    className="h-full bg-gradient-to-r from-green-500 to-yellow-400 transition-all duration-700"
+                                    className="h-full bg-gradient-to-r from-west-teal to-west-gold transition-all duration-700"
                                     style={{ width: `${(presentCount / participants.length) * 100}%` }}
                                 />
                             </div>
                         )}
-                        <div className="text-[10px] text-gray-500 mt-1 flex items-center justify-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                        <div className="font-oswald text-[10px] uppercase tracking-widest text-west-muted mt-2 flex items-center justify-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-west-teal animate-pulse inline-block" />
                             {realtimeOn ? 'Live' : 'Auto-refresh'}
                         </div>
                     </div>
 
                     {/* Registration toggle */}
-                    <div className={`rounded-xl border px-3 py-2.5 flex items-center justify-between ${eventData?.registration_open
-                            ? 'bg-green-500/10 border-green-500/30'
-                            : 'bg-red-500/10 border-red-500/30'
+                    <div className={`rounded-lg border px-3 py-2.5 flex items-center justify-between ${registrationOpen
+                        ? 'bg-west-teal/15 border-west-teal/60'
+                        : 'bg-west-danger/10 border-west-danger/50'
                         }`}>
                         <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${eventData?.registration_open ? 'bg-green-400 animate-pulse' : 'bg-red-400'
-                                }`} />
-                            <span className={`text-xs font-bold ${eventData?.registration_open ? 'text-green-300' : 'text-red-300'
-                                }`}>
-                                {eventData?.registration_open ? 'Pendaftaran Dibuka' : 'Pendaftaran Ditutup'}
+                            <span className={`w-2 h-2 rounded-full ${registrationOpen ? 'bg-west-teal animate-pulse' : 'bg-west-danger'}`} />
+                            <span className="font-oswald text-xs uppercase tracking-wider text-west-cream">
+                                {registrationOpen ? 'Pendaftaran Dibuka' : 'Pendaftaran Ditutup'}
                             </span>
                         </div>
                         <button
                             onClick={handleToggleRegistration}
-                            className={`text-[11px] px-2.5 py-1 rounded-lg font-bold transition-colors ${eventData?.registration_open
-                                    ? 'bg-red-600/40 hover:bg-red-600 text-red-200'
-                                    : 'bg-green-600/40 hover:bg-green-600 text-green-200'
-                                }`}
+                            className={`text-[11px] px-2.5 py-1 ${registrationOpen ? 'western-btn-danger' : 'western-btn-secondary'}`}
                         >
-                            {eventData?.registration_open ? 'Tutup' : 'Buka'}
+                            {registrationOpen ? 'Tutup' : 'Buka'}
                         </button>
                     </div>
 
                     {/* Error */}
                     {error && (
-                        <div className="bg-red-500/15 border border-red-500/40 text-red-300 rounded-xl px-3 py-2.5 text-xs">
+                        <div className="bg-west-danger/15 border border-west-danger/50 text-[#F1A198] rounded-lg px-3 py-2.5 text-xs">
                             ⚠️ {error}
                         </div>
                     )}
@@ -288,18 +298,15 @@ const LobbyScreen = () => {
                     <div className="flex-1" />
 
                     {/* START BUTTON */}
-                    <div className="space-y-2">
-                        <p className="text-[10px] text-gray-600 text-center leading-relaxed">
+                    <div className="space-y-2 pt-2">
+                        <p className="font-oswald text-[11px] uppercase tracking-wider text-west-muted text-center leading-relaxed">
                             Tekan START untuk mulakan cabutan.<br />
                             Pendaftaran ditutup automatik.
                         </p>
                         <button
                             onClick={handleStartDraw}
                             disabled={starting || presentCount === 0}
-                            className={`w-full py-4 rounded-2xl text-xl font-black tracking-wide transition-all duration-200 ${starting || presentCount === 0
-                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                    : 'bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white shadow-[0_8px_30px_rgba(220,38,38,0.4)] hover:scale-[1.03] active:scale-95'
-                                }`}
+                            className="western-btn w-full py-4 text-xl rounded-xl shadow-[0_8px_30px_rgba(212,160,23,0.35)] hover:scale-[1.02] active:scale-95 disabled:hover:scale-100"
                         >
                             {starting ? (
                                 <span className="flex items-center justify-center gap-2">
@@ -309,101 +316,87 @@ const LobbyScreen = () => {
                                     </svg>
                                     Memulakan...
                                 </span>
-                            ) : '🚀 START DRAW'}
+                            ) : '🤠 YEEHAW! START DRAW'}
                         </button>
                     </div>
-                </div>
+                </aside>
 
                 {/* ── RIGHT PANEL: Participant Grid ── */}
-                <div className="flex-1 flex flex-col overflow-hidden">
-                    <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between shrink-0">
-                        <h2 className="text-sm font-bold text-gray-300 uppercase tracking-widest">
-                            Senarai Peserta Masuk
-                        </h2>
-                        {loading && <span className="text-xs text-gray-500 animate-pulse">Memuatkan...</span>}
+                <section className="flex-1 flex flex-col min-h-[50vh] lg:min-h-0 lg:overflow-hidden">
+                    <div className="px-6 pt-4 pb-3 shrink-0">
+                        <div className="flex items-center justify-between">
+                            <h2 className="font-oswald font-semibold text-sm uppercase tracking-[0.3em] text-west-gold">
+                                ✦ Senarai Peserta Masuk ✦
+                            </h2>
+                            {loading && <span className="font-oswald text-xs uppercase tracking-widest text-west-muted animate-pulse">Memuatkan...</span>}
+                        </div>
+                        <div className="rope-divider mt-3" />
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4">
+                    <div className="flex-1 lg:overflow-y-auto p-4">
                         {participants.length === 0 && !loading ? (
-                            <div className="h-full flex flex-col items-center justify-center text-gray-600 gap-4">
-                                <div className="text-7xl opacity-20">👥</div>
+                            <div className="h-full min-h-[300px] flex flex-col items-center justify-center gap-4">
+                                <div className="text-7xl opacity-30">🤠</div>
                                 <div className="text-center">
-                                    <p className="text-base font-semibold">Menunggu peserta...</p>
-                                    <p className="text-sm mt-1 text-gray-700">Tunjukkan QR code kepada peserta untuk check-in</p>
+                                    <p className="font-rye text-xl text-west-gold/70">Menunggu peserta...</p>
+                                    <p className="font-oswald text-sm uppercase tracking-wider mt-1 text-west-muted">Tunjukkan QR code kepada peserta untuk check-in</p>
                                 </div>
                             </div>
                         ) : (
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
-                                {participants.map((p, idx) => (
+                                {participants.map(p => (
                                     <ParticipantCard
                                         key={p.id}
                                         participant={p}
-                                        index={idx}
                                         isNew={newEntries.has(p.id)}
                                     />
                                 ))}
                             </div>
                         )}
                     </div>
-                </div>
+                </section>
             </div>
 
-            <div className="text-center py-2 text-xs text-gray-800 border-t border-white/5 bg-black/30">
-                Sistem Cabutan Bertuah Digital • Admin Lobby View
+            <div className="relative z-10 shrink-0 text-center py-2 font-oswald text-[10px] uppercase tracking-[0.3em] text-west-muted/60 border-t border-west-border/20 bg-west-bg/80">
+                ★ Sistem Cabutan Bertuah Digital ★ Admin Lobby View ★
             </div>
         </div>
     );
 };
 
-// ── Participant Card ──────────────────────────────────────────────────────────
-const CARD_COLORS = [
-    'from-purple-600/40 to-purple-800/30 border-purple-500/40',
-    'from-blue-600/40 to-blue-800/30 border-blue-500/40',
-    'from-green-600/40 to-green-800/30 border-green-500/40',
-    'from-orange-600/40 to-orange-800/30 border-orange-500/40',
-    'from-pink-600/40 to-pink-800/30 border-pink-500/40',
-    'from-teal-600/40 to-teal-800/30 border-teal-500/40',
-    'from-red-600/40 to-red-800/30 border-red-500/40',
-    'from-yellow-600/40 to-yellow-800/30 border-yellow-500/40',
-];
-
+// ── Participant Card (wanted poster) ──────────────────────────────────────────
 function getInitials(name = '') {
     return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 }
 
-function ParticipantCard({ participant, index, isNew }) {
+function ParticipantCard({ participant, isNew }) {
     const present = isPresent(participant);
     return (
         <div className={`
-            relative rounded-2xl border p-3 flex flex-col items-center gap-2 text-center transition-all duration-500
-            ${present
-                ? `bg-gradient-to-br ${CARD_COLORS[index % CARD_COLORS.length]}`
-                : 'bg-white/[0.03] border-white/10 opacity-50 grayscale'
-            }
-            ${isNew
-                ? 'scale-110 shadow-[0_0_25px_rgba(234,179,8,0.6)] border-yellow-400/80 z-10'
-                : 'hover:scale-[1.03]'
-            }
+            wanted-card rounded-lg px-3 pt-2 pb-3 flex flex-col items-center gap-1.5 text-center transition-all duration-500
+            ${present ? 'wanted-card--present' : 'wanted-card--absent'}
+            ${isNew ? 'wanted-card--new scale-110 z-10' : 'hover:scale-[1.03]'}
         `}>
             {isNew ? (
-                <span className="absolute -top-2 -right-2 bg-yellow-400 text-black text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg">
+                <span className="absolute -top-2.5 -right-2 rotate-6 bg-west-gold text-west-bg font-oswald font-bold text-[10px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm shadow-lg">
                     HADIR!
                 </span>
             ) : present && (
                 <span
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-green-500 text-white text-[11px] font-black rounded-full flex items-center justify-center shadow-lg"
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-west-teal border border-west-gold/60 text-west-cream text-[11px] font-bold flex items-center justify-center shadow-lg"
                     title="Sudah check-in"
                 >
                     ✓
                 </span>
             )}
-            <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-sm font-black text-white">
+            <div className="font-rye text-[10px] tracking-[0.2em] text-west-gold/80">★ WANTED ★</div>
+            <div className="w-11 h-11 rounded-sm border border-west-border/70 bg-west-bg/50 flex items-center justify-center font-rye text-lg text-west-gold">
                 {getInitials(participant.name) || '?'}
             </div>
-            <div className="text-xs font-bold text-white leading-tight line-clamp-2 w-full">
+            <div className="font-oswald font-semibold uppercase tracking-wide text-xs md:text-sm leading-tight line-clamp-2 w-full text-west-cream">
                 {participant.name}
             </div>
-            <div className="text-[10px] text-gray-400 font-mono">
+            <div className="font-rye text-[10px] text-west-muted">
                 #{String(participant.id).padStart(4, '0')}
             </div>
         </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onDeleteOne, onDeleteAll }) => {
+const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onDeleteOne, onDeleteAll, onResetDraw }) => {
     const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
     if (!selectedEvent) {
@@ -29,6 +29,15 @@ const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onD
                     )}
                 </h2>
                 <div className="flex items-center gap-2 flex-wrap">
+                    {/* Reset Draw (confirmation is handled by onResetDraw) */}
+                    {participants.length > 0 && (
+                        <button
+                            onClick={onResetDraw}
+                            className="bg-amber-900/40 hover:bg-amber-600 border border-amber-600/50 text-amber-300 hover:text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                        >
+                            🔄 Reset Draw
+                        </button>
+                    )}
                     {/* Delete All */}
                     {participants.length > 0 && (
                         !confirmDeleteAll ? (

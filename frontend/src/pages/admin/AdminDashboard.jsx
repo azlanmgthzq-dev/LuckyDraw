@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import eventService from '../../services/eventService';
 import participantService from '../../services/participantService';
 import prizeService from '../../services/prizeService';
+import { supabase, check } from '../../services/supabaseClient';
 
 // Tabs
 import EventsTab from './tabs/EventsTab';
@@ -255,6 +256,28 @@ const AdminDashboard = () => {
         }
     };
 
+    // Reset Draw: wipe all results + sessions for this event and mark everyone present again.
+    // Participants and prizes (incl. scripted winners) are kept.
+    const handleResetDraw = async () => {
+        if (!selectedEvent) return;
+        if (!window.confirm(
+            'Reset cabutan? Semua keputusan & sesi cabutan untuk acara ini akan dipadam, dan semua peserta ditandakan hadir.\n\n' +
+            'Reset the draw? All draw results & sessions for this event will be deleted, and every participant marked as checked in.'
+        )) return;
+
+        const eventId = selectedEvent.id;
+        try {
+            // Results first — they reference draw_sessions
+            check(await supabase.from('draw_results').delete().eq('event_id', eventId));
+            check(await supabase.from('draw_sessions').delete().eq('event_id', eventId));
+            check(await supabase.from('participants').update({ checked_in: true }).eq('event_id', eventId));
+            showMessage('success', 'Cabutan direset / Draw reset');
+            await loadEventData(eventId);
+        } catch (err) {
+            showMessage('error', `Gagal reset cabutan / Failed to reset draw: ${err.message}`);
+        }
+    };
+
     const handleOpenRegistration = async () => {
         setActionLoading(true);
         try {
@@ -425,6 +448,7 @@ const AdminDashboard = () => {
                                     onCheckIn={handleCheckIn}
                                     onDeleteOne={handleDeleteParticipant}
                                     onDeleteAll={handleDeleteAllParticipants}
+                                    onResetDraw={handleResetDraw}
                                 />
                             )}
                             {activeTab === 'registration' && (

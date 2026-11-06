@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import confetti from 'canvas-confetti';
+import gsap from 'gsap';
+import { useGSAP } from '@gsap/react';
 import eventService from '../services/eventService';
 import prizeService from '../services/prizeService';
 import drawService from '../services/drawService';
 import participantService from '../services/participantService';
 import { isPresent } from '../utils/participants';
+import BrandingBar from '../components/BrandingBar';
+
+gsap.registerPlugin(useGSAP);
+
+// Text on the right of the branding bar
+const EVENT_TAGLINE = "GTA Cowboy In The Sky ★ 28 November 2026";
 
 // ── Animation timing ────────────────────────────────────────────
 const IDLE_STEP_MS = 280;          // slow random highlight before drawing
@@ -14,6 +22,7 @@ const FAST_PHASE_MS = 2200;        // minimum time of rapid flashing
 const SLOWDOWN_STEPS_MS = [90, 110, 140, 180, 230, 290, 360, 440, 540]; // then lands on winner
 const FINAL_STEP_MS = 650;
 const OVERLAY_DELAY_MS = 1200;     // let the gold winner card shine before the overlay
+const DUST_COUNT = 20;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -25,10 +34,10 @@ const pickRandom = (ids, exclude) => {
     return id;
 };
 
-// Full-screen confetti for ~3 seconds
+// Full-screen gold confetti for ~3 seconds
 const fireConfetti = () => {
     const end = Date.now() + 3000;
-    const colors = ['#facc15', '#f59e0b', '#ef4444', '#ffffff', '#fb7185'];
+    const colors = ['#FFD700', '#D4A017', '#F5E6C8', '#C0392B', '#2D7D6F'];
     confetti({ particleCount: 160, spread: 100, origin: { y: 0.6 }, colors, zIndex: 9999 });
     (function frame() {
         confetti({ particleCount: 6, angle: 60, spread: 70, origin: { x: 0 }, colors, zIndex: 9999 });
@@ -37,27 +46,176 @@ const fireConfetti = () => {
     })();
 };
 
-// ── Name card ───────────────────────────────────────────────────
-const NameCard = memo(function NameCard({ name, state }) {
-    // state: normal | highlight | winner | dim
-    const base = 'relative rounded-xl border px-2 py-3 flex items-center justify-center text-center min-h-[64px] select-none';
-    const styles = {
-        normal: 'bg-white/[0.04] border-white/10 text-gray-300 transition-all duration-300',
-        highlight: 'bg-yellow-400/90 border-yellow-200 text-black scale-105 shadow-[0_0_25px_rgba(250,204,21,0.7)] z-10',
-        winner: 'bg-gradient-to-br from-yellow-300 to-amber-500 border-yellow-100 text-black scale-125 z-20 animate-winner-glow transition-all duration-500',
-        dim: 'bg-white/[0.02] border-white/5 text-gray-600 opacity-20 transition-all duration-700',
-    };
+// ── Floating golden dust (GSAP) ─────────────────────────────────
+const DustParticles = () => {
+    const ref = useRef(null);
+    const [dots] = useState(() =>
+        Array.from({ length: DUST_COUNT }, () => ({
+            left: Math.random() * 100,
+            size: 2 + Math.random() * 3,
+        })));
+
+    useGSAP(() => {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        const height = ref.current.offsetHeight || window.innerHeight;
+        gsap.utils.toArray('.dust', ref.current).forEach(dot => {
+            const tween = gsap.fromTo(dot,
+                { y: 0, x: 0, opacity: gsap.utils.random(0.3, 0.6) },
+                {
+                    y: -(height + 40),
+                    x: gsap.utils.random(-40, 40),
+                    duration: gsap.utils.random(8, 12),
+                    ease: 'none',
+                    repeat: -1,
+                });
+            tween.progress(Math.random()); // spread them over the screen from the start
+        });
+    }, { scope: ref });
+
     return (
-        <div className={`${base} ${styles[state]}`}>
+        <div ref={ref} className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden="true">
+            {dots.map((d, i) => (
+                <span
+                    key={i}
+                    className="dust absolute rounded-full bg-west-gold shadow-[0_0_6px_rgba(212,160,23,0.8)]"
+                    style={{ left: `${d.left}%`, bottom: -10, width: d.size, height: d.size, opacity: 0 }}
+                />
+            ))}
+        </div>
+    );
+};
+
+// ── Name card (wanted poster) ───────────────────────────────────
+const NameCard = memo(function NameCard({ name, state }) {
+    // state: normal | glow (idle) | highlight (drawing) | winner | dim
+    const ref = useRef(null);
+
+    useGSAP(() => {
+        if (state === 'winner') {
+            gsap.to(ref.current, { scale: 1.3, duration: 0.5, ease: 'back.out(1.7)' });
+        }
+    }, { dependencies: [state], scope: ref, revertOnUpdate: true });
+
+    return (
+        <div
+            ref={ref}
+            className={`wanted-card name-card is-${state} rounded-lg p-3 flex flex-col items-center justify-center text-center min-h-[84px] select-none ${state === 'winner' ? 'animate-winner-glow' : ''}`}
+        >
             {state === 'winner' && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xl">👑</span>
+                <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-xl">👑</span>
             )}
-            <span className={`font-bold leading-tight line-clamp-2 ${state === 'winner' ? 'text-base md:text-lg font-black' : 'text-xs md:text-sm'}`}>
+            <span className={`font-oswald uppercase leading-tight line-clamp-2 ${state === 'winner' ? 'text-lg md:text-xl font-bold' : 'text-sm md:text-base font-semibold tracking-wide'}`}>
                 {name}
             </span>
         </div>
     );
 });
+
+// ── Draw button with GSAP entrance ──────────────────────────────
+const DrawButton = ({ onClick, disabled }) => {
+    const ref = useRef(null);
+    useGSAP(() => {
+        gsap.from(ref.current, { y: 40, opacity: 0, scale: 0.92, duration: 0.6, ease: 'back.out(1.7)' });
+    }, { scope: ref });
+
+    return (
+        <button
+            ref={ref}
+            onClick={onClick}
+            disabled={disabled}
+            className="flex-1 py-5 rounded-xl font-oswald font-bold uppercase tracking-[0.2em] text-2xl md:text-3xl text-west-cream bg-gradient-to-r from-west-danger via-[#D35400] to-west-gold border border-west-gold/60 shadow-[0_10px_40px_rgba(212,160,23,0.35)] [text-shadow:0_2px_6px_rgba(0,0,0,0.5)] transition-[filter] hover:brightness-110 active:brightness-95 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+            🎯 Draw Your Destiny
+        </button>
+    );
+};
+
+// ── Side walls (decorative, lg+ screens only) ───────────────────
+const WallDivider = () => <div className="self-stretch border-t border-amber-600/40 mx-4 my-4" />;
+
+const LeftWall = () => {
+    const [logoFailed, setLogoFailed] = useState(false);
+    return (
+        <aside className="hidden lg:flex flex-col items-center text-center w-48 shrink-0 h-full min-h-screen relative z-10 bg-black/75 border-r border-amber-900/50">
+            {logoFailed ? (
+                <div className="font-rye text-4xl text-west-gold mt-8">GTA</div>
+            ) : (
+                <img src="/gta-logo.png" alt="GTA" className="w-32 mx-auto mt-8" onError={() => setLogoFailed(true)} />
+            )}
+            <WallDivider />
+            <div className="font-oswald font-semibold uppercase tracking-widest text-sm text-west-gold leading-relaxed">
+                <div>DINNER GTA</div>
+                <div>FAMILY DAY 2026</div>
+            </div>
+            <WallDivider />
+            <div className="flex-1" />
+            <div className="text-3xl text-west-gold mb-8">★</div>
+        </aside>
+    );
+};
+
+const RightWall = () => (
+    <aside className="hidden lg:flex flex-col items-center text-center w-48 shrink-0 h-full min-h-screen relative z-10 bg-black/75 border-l border-amber-900/50">
+        <div className="font-rye text-base text-west-gold mt-8">GTA COWBOY</div>
+        <WallDivider />
+        <div className="font-oswald font-semibold uppercase tracking-widest text-sm text-west-cream">IN THE SKY</div>
+        <WallDivider />
+        <div className="font-oswald uppercase tracking-widest text-sm text-west-gold/60 leading-relaxed">
+            <div>28 NOVEMBER</div>
+            <div>2026</div>
+        </div>
+        <div className="flex-1" />
+        <div className="text-3xl text-west-gold mb-8">★</div>
+    </aside>
+);
+
+// ── Winner overlay with GSAP entrance timeline ──────────────────
+const WinnerOverlay = ({ winner, prize, children }) => {
+    const ref = useRef(null);
+
+    useGSAP(() => {
+        gsap.timeline()
+            .from(ref.current, { opacity: 0, duration: 0.5, ease: 'power2.out' })
+            .from('.wo-title', { scale: 0.4, opacity: 0, duration: 0.5, ease: 'back.out(1.7)' }, '-=0.1')
+            .from('.wo-name', { y: 300, opacity: 0, duration: 0.8, ease: 'power4.out' }, '-=0.2')
+            .call(fireConfetti)
+            .from('.wo-prize', { y: 30, opacity: 0, duration: 0.5, ease: 'power2.out' }, '-=0.2')
+            .from('.wo-actions', { opacity: 0, duration: 0.4 });
+    }, { scope: ref });
+
+    return (
+        <div
+            ref={ref}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-hidden"
+            style={{ background: 'radial-gradient(circle at 50% 35%, rgba(255,215,0,0.28) 0%, rgba(13,10,6,0.92) 55%, rgba(13,10,6,0.97) 100%)' }}
+        >
+            <div className="text-center max-w-4xl w-full flex flex-col items-center gap-5">
+                <div className="wo-title font-rye text-4xl md:text-6xl lg:text-7xl text-west-winner drop-shadow-[0_0_30px_rgba(255,215,0,0.6)]">
+                    🤠 WE GOT A WINNER!
+                </div>
+                <div className="wo-name font-oswald font-bold uppercase tracking-wide text-5xl md:text-7xl lg:text-8xl text-west-cream leading-tight break-words">
+                    {winner.name}
+                </div>
+
+                <div className="wo-prize flex flex-col items-center gap-3 mt-2">
+                    {prize?.image_url ? (
+                        <img
+                            src={prize.image_url}
+                            alt={prize.title}
+                            className="w-24 h-24 object-contain mx-auto rounded-xl shadow-lg"
+                        />
+                    ) : (
+                        <div className="text-7xl">🏆</div>
+                    )}
+                    <div className="font-oswald text-sm text-west-muted uppercase tracking-[0.3em]">✦ wins ✦</div>
+                    <div className="font-rye text-2xl md:text-4xl text-west-gold">{prize?.title}</div>
+                </div>
+
+                <div className="wo-actions mt-6">{children}</div>
+            </div>
+        </div>
+    );
+};
 
 const DrawScreen = () => {
     const { eventId } = useParams();
@@ -118,7 +276,7 @@ const DrawScreen = () => {
                 setCurrentPrizeIndex(firstOpen === -1 ? przs.length : firstOpen);
             } catch (err) {
                 console.error(err);
-                setErrorMsg('Gagal memulakan sesi cabutan.');
+                setErrorMsg('Failed to start the draw session.');
             } finally {
                 setLoading(false);
             }
@@ -176,7 +334,7 @@ const DrawScreen = () => {
         } catch (err) {
             clearInterval(fast);
             if (!mountedRef.current) return;
-            setErrorMsg(err.message || 'Gagal mencari pemenang.');
+            setErrorMsg(err.message || 'Failed to draw a winner.');
             setFrozenPool(null);
             setHighlightId(null);
             setPhase('idle');
@@ -185,7 +343,23 @@ const DrawScreen = () => {
         clearInterval(fast);
         if (!mountedRef.current) return;
 
-        const won = data.winner;
+        // data: { result_id, participant_id, participant_name, participant_phone, prize_title, prize_image, is_mystery, winner_index }
+        const won = data?.participant_id != null
+            ? { id: data.participant_id, name: data.participant_name }
+            : null;
+        if (!won) {
+            console.error('draw_winner returned no winner:', data);
+            setErrorMsg('No winner came back from the database. Please try again — if it keeps happening, check the draw_winner function in Supabase.');
+            setFrozenPool(null);
+            setHighlightId(null);
+            setPhase('idle');
+            // The database may still have saved a result — resync so counts stay correct
+            try {
+                const res = await drawService.getResults(eventId);
+                if (mountedRef.current) setResults(res);
+            } catch { /* keep current results */ }
+            return;
+        }
         // Scripted winner might not be in the grid — add them so the animation can land
         if (!ids.includes(won.id)) {
             setFrozenPool(prev => [...(prev ?? []), { id: won.id, name: won.name }]);
@@ -211,8 +385,8 @@ const DrawScreen = () => {
             winner_index: data.winner_index,
         }]);
         setPhase('revealed');
-        fireConfetti();
 
+        // Confetti fires inside the overlay's entrance timeline
         setTimeout(() => { if (mountedRef.current) setShowOverlay(true); }, OVERLAY_DELAY_MS);
         refreshParticipants(); // pick up new check-ins for the next draw
     };
@@ -241,20 +415,21 @@ const DrawScreen = () => {
 
     const handleEndSession = () => {
         if (phase === 'drawing') return;
-        if (!allDone && !window.confirm('Tamatkan sesi cabutan dan lihat ringkasan?')) return;
+        if (!allDone && !window.confirm('End the draw session and view the Hall of Fame?')) return;
         goToSummary();
     };
 
     const cardState = (id) => {
         if (phase === 'revealed') return id === winner?.id ? 'winner' : 'dim';
-        return id === highlightId ? 'highlight' : 'normal';
+        if (id !== highlightId) return 'normal';
+        return phase === 'drawing' ? 'highlight' : 'glow';
     };
 
     // ── Loading ──
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
-                <div className="text-xl md:text-2xl text-red-500 font-bold tracking-widest animate-pulse">Loading Draw Session...</div>
+            <div className="western-screen min-h-screen flex items-center justify-center">
+                <div className="font-rye text-2xl md:text-3xl text-west-gold animate-pulse">🤠 Loading Draw Session...</div>
             </div>
         );
     }
@@ -262,22 +437,26 @@ const DrawScreen = () => {
     // ── No prizes / all done ──
     if (prizes.length === 0 || allDone) {
         return (
-            <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center relative overflow-hidden p-6">
-                <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[120px] pointer-events-none" />
-                <div className="z-10 text-center space-y-6 p-10 max-w-xl bg-white/5 backdrop-blur-xl rounded-[2rem] border border-white/10">
-                    <h1 className="text-3xl md:text-4xl font-black">
-                        {prizes.length === 0 ? 'Tiada hadiah didaftarkan' : '🎉 Semua Hadiah Selesai!'}
-                    </h1>
-                    {errorMsg && <p className="text-red-300 text-sm">{errorMsg}</p>}
-                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                        {prizes.length > 0 && (
-                            <button onClick={goToSummary} className="px-8 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-lg font-bold rounded-2xl transition-all hover:scale-[1.02]">
-                                Lihat Ringkasan 📋
+            <div className="western-screen min-h-screen flex flex-col">
+                <BrandingBar tagline={EVENT_TAGLINE} />
+                <div className="flex-1 flex items-center justify-center p-6">
+                    <div className="western-card text-center space-y-6 p-10 max-w-xl w-full">
+                        <div className="text-6xl">{prizes.length === 0 ? '🌵' : '🤠'}</div>
+                        <h1 className="font-rye text-3xl md:text-4xl text-west-gold">
+                            {prizes.length === 0 ? 'No Prizes Yet' : 'All Prizes Claimed!'}
+                        </h1>
+                        <div className="rope-divider max-w-xs mx-auto" />
+                        {errorMsg && <p className="text-[#F1A198] text-sm">{errorMsg}</p>}
+                        <div className="relative z-10 flex flex-col sm:flex-row gap-3 justify-center">
+                            {prizes.length > 0 && (
+                                <button onClick={goToSummary} className="western-btn px-8 py-4 text-lg">
+                                    🏆 View Hall of Fame
+                                </button>
+                            )}
+                            <button onClick={() => navigate('/admin')} className="western-btn-secondary px-8 py-4 text-lg">
+                                Dashboard
                             </button>
-                        )}
-                        <button onClick={() => navigate('/admin')} className="px-8 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-lg font-bold rounded-2xl">
-                            Dashboard
-                        </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -286,26 +465,42 @@ const DrawScreen = () => {
 
     // ── Main ──
     return (
-        <div className="h-screen relative flex flex-col font-sans overflow-hidden bg-slate-950 text-white">
-            <div className="absolute top-[-10%] left-[-10%] w-[600px] h-[600px] bg-red-600/10 rounded-full blur-[140px] pointer-events-none" />
-            <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-rose-900/20 rounded-full blur-[160px] pointer-events-none" />
+        <div
+            className="western-screen h-screen flex flex-row overflow-hidden"
+            style={{
+                backgroundImage: 'url(/bg1.webp)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat'
+            }}
+        >
+            {/* Dark overlay over the background image */}
+            <div className="absolute inset-0 bg-black/45 z-0 pointer-events-none" />
+
+            <LeftWall />
+
+            {/* Main content between the walls */}
+            {/* z-20 (not z-10) so the fixed winner overlay inside it also covers the right wall */}
+            <div className="relative z-20 flex-1 min-w-0 h-full flex flex-col overflow-hidden">
+            <DustParticles />
+            <BrandingBar tagline={EVENT_TAGLINE} />
 
             {/* Top bar */}
-            <header className="relative z-20 px-4 md:px-6 py-3 flex justify-between items-center bg-white/[0.02] backdrop-blur-md border-b border-white/5 shrink-0">
-                <div className="text-lg md:text-xl font-bold text-white/90 truncate">{eventData?.name}</div>
+            <header className="relative z-20 shrink-0 px-4 md:px-6 py-3 flex justify-between items-center gap-4 bg-west-bg/60 border-b border-west-border/30">
+                <div className="font-rye text-lg md:text-2xl text-west-cream truncate">{eventData?.name}</div>
                 <button
                     onClick={handleEndSession}
                     disabled={phase === 'drawing'}
-                    className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 px-4 py-2 rounded-xl text-sm font-bold transition-all disabled:opacity-40"
+                    className="western-btn-danger shrink-0 px-4 py-2 text-sm"
                 >
-                    Tamat Sesi
+                    ⚡ End Session
                 </button>
             </header>
 
             {/* Prize strip */}
-            <section className="relative z-10 shrink-0 flex items-center justify-center gap-4 md:gap-6 px-4 py-4">
+            <section className="relative z-10 shrink-0 flex items-center justify-center gap-4 md:gap-6 px-4 py-6">
                 {isMysteryHidden || !currentPrize?.image_url ? (
-                    <div className={`w-20 h-20 md:w-24 md:h-24 rounded-2xl border flex items-center justify-center text-4xl md:text-5xl shrink-0 ${isMysteryHidden ? 'border-purple-400/30 bg-purple-600/20' : 'border-white/10 bg-white/5'}`}>
+                    <div className={`w-28 h-28 md:w-36 md:h-36 rounded-xl border-2 flex items-center justify-center text-5xl md:text-6xl shrink-0 ${isMysteryHidden ? 'border-west-teal bg-west-teal/15' : 'border-west-border bg-west-card'}`}>
                         <span className="animate-float inline-block">🎁</span>
                     </div>
                 ) : (
@@ -313,37 +508,41 @@ const DrawScreen = () => {
                         key={`img-${currentPrize.id}`}
                         src={currentPrize.image_url}
                         alt={currentPrize.title}
-                        className="w-20 h-20 md:w-24 md:h-24 object-contain rounded-2xl border border-white/10 bg-white/5 p-2 shrink-0 animate-fade-in"
+                        className="w-28 h-28 md:w-36 md:h-36 object-contain rounded-xl border-2 border-west-border bg-west-card p-2 shrink-0 shadow-[0_0_25px_rgba(212,160,23,0.25)] animate-fade-in"
                     />
                 )}
                 <div className="min-w-0">
-                    <div className="inline-flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 px-3 py-1 rounded-full text-[10px] font-bold tracking-[0.2em] uppercase">
-                        Hadiah Ke-{currentPrize?.prize_order}
-                    </div>
+                    <span className="western-stamp">★ Prize #{currentPrize?.prize_order} ★</span>
                     {isMysteryHidden ? (
-                        <h2 className="text-2xl md:text-4xl font-black text-purple-300 mt-1">🎁 Hadiah Misteri</h2>
+                        <h2 className="font-rye text-4xl md:text-6xl text-west-cream mt-2">🎁 Mystery Prize</h2>
                     ) : (
-                        <h2 key={`title-${currentPrize?.id}`} className="text-2xl md:text-4xl font-black mt-1 truncate animate-fade-in">
+                        <h2 key={`title-${currentPrize?.id}`} className="font-rye text-4xl md:text-6xl text-west-gold mt-2 truncate drop-shadow-[0_0_18px_rgba(212,160,23,0.35)] animate-fade-in">
                             {currentPrize?.title}
                         </h2>
                     )}
-                    <p className="text-xs md:text-sm text-gray-400 mt-1">
-                        Pemenang {drawnForPrize} / {currentPrize?.winner_count} • {eligible.length} peserta layak
+                    <p className="font-oswald text-xs md:text-sm uppercase tracking-widest text-west-muted mt-1">
+                        Winner {drawnForPrize} / {currentPrize?.winner_count}
+                        <span className="text-west-border mx-2">✦</span>
+                        {eligible.length} eligible cowboys
                     </p>
                 </div>
             </section>
 
+            <div className="relative z-10 shrink-0 px-4 md:px-6">
+                <div className="rope-divider" />
+            </div>
+
             {/* Name grid */}
             <main className="relative z-10 flex-1 overflow-y-auto px-4 md:px-6 pb-4">
                 {pool.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-2">
-                        <div className="text-6xl opacity-30">👥</div>
-                        <p>Tiada peserta yang hadir dan layak.</p>
+                    <div className="h-full flex flex-col items-center justify-center gap-2">
+                        <div className="text-6xl opacity-30">🌵</div>
+                        <p className="font-oswald uppercase tracking-widest text-west-muted">No eligible cowboys in town.</p>
                     </div>
                 ) : (
                     <div
-                        className="grid gap-2 md:gap-3 py-3"
-                        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}
+                        className="grid gap-2 md:gap-3 py-4"
+                        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
                     >
                         {pool.map(p => (
                             <NameCard key={p.id} name={p.name} state={cardState(p.id)} />
@@ -353,83 +552,57 @@ const DrawScreen = () => {
             </main>
 
             {/* Controls */}
-            <footer className="relative z-20 shrink-0 px-4 py-4 border-t border-white/5 bg-black/30 backdrop-blur-md flex flex-col items-center gap-2">
+            <footer className="relative z-20 shrink-0 px-4 py-4 border-t border-west-border/40 bg-west-surface/85 flex flex-col items-center gap-2">
                 {errorMsg && (
-                    <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-2 rounded-xl text-sm">⚠️ {errorMsg}</div>
+                    <div className="bg-west-danger/15 border border-west-danger/50 text-[#F1A198] px-4 py-2 rounded-lg text-sm">⚠️ {errorMsg}</div>
                 )}
-                <div className="flex items-center gap-3">
+                <div className="w-full max-w-5xl flex items-stretch gap-3">
                     {phase === 'idle' && (
                         <>
                             <button
                                 onClick={() => setPaused(p => !p)}
                                 disabled={pool.length === 0}
-                                className="px-5 py-4 bg-white/10 hover:bg-white/15 border border-white/10 rounded-2xl text-base font-bold transition-all disabled:opacity-40"
+                                className="western-btn-secondary shrink-0 px-5 md:px-8 py-4 text-lg"
                             >
-                                {paused ? '▶ Teruskan' : '⏸ Jeda'}
+                                {paused ? '▶ Giddy Up!' : '⏸ Hold Your Horses'}
                             </button>
-                            <button
-                                onClick={handleDraw}
-                                disabled={prizeComplete}
-                                className="px-10 py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xl md:text-2xl font-black rounded-2xl shadow-[0_10px_40px_rgba(225,29,72,0.4)] transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40"
-                            >
-                                🎲 CARI PEMENANG
-                            </button>
+                            <DrawButton onClick={handleDraw} disabled={prizeComplete} />
                         </>
                     )}
                     {phase === 'drawing' && (
-                        <div className="px-10 py-4 bg-white/5 border border-white/10 rounded-2xl text-lg font-bold tracking-[0.3em] text-yellow-300 animate-pulse">
-                            MENGUNDI...
+                        <div className="flex-1 py-5 text-center font-rye text-2xl md:text-3xl text-west-gold tracking-widest animate-pulse border-2 border-dashed border-west-border/60 rounded-xl">
+                            🎲 DRAWING FATE...
                         </div>
                     )}
                     {phase === 'revealed' && !showOverlay && (
-                        <div className="px-10 py-4 text-lg font-bold text-yellow-300">🎉 {winner?.name}</div>
+                        <div className="flex-1 py-5 text-center font-rye text-2xl md:text-3xl text-west-winner">
+                            👑 {winner?.name}
+                        </div>
                     )}
                 </div>
             </footer>
 
             {/* Winner overlay */}
             {showOverlay && winner && (
-                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
-                    <div className="text-center max-w-3xl w-full flex flex-col items-center gap-5">
-                        <div className="text-4xl md:text-6xl font-black text-yellow-400 tracking-wide animate-pop-in drop-shadow-[0_0_30px_rgba(250,204,21,0.6)]">
-                            🎉 TAHNIAH!
-                        </div>
-                        <div className="text-5xl md:text-7xl lg:text-8xl font-black text-white leading-tight break-words animate-fade-in-up">
-                            {winner.name}
-                        </div>
-
-                        <div className="flex flex-col items-center gap-3 mt-2 animate-fade-in-up">
-                            {currentPrize?.image_url ? (
-                                <img
-                                    src={currentPrize.image_url}
-                                    alt={currentPrize.title}
-                                    className="w-40 h-40 md:w-52 md:h-52 object-contain rounded-3xl border border-yellow-400/30 bg-white/5 p-3 shadow-[0_0_50px_rgba(250,204,21,0.25)]"
-                                />
-                            ) : (
-                                <div className="text-7xl">🎁</div>
-                            )}
-                            <div className="text-sm text-gray-400 uppercase tracking-[0.3em]">memenangi</div>
-                            <div className="text-2xl md:text-4xl font-black text-yellow-300">{currentPrize?.title}</div>
-                        </div>
-
-                        <div className="mt-6">
-                            {!prizeComplete ? (
-                                <button onClick={handleNextWinner} className="px-10 py-4 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl text-lg font-bold transition-all hover:scale-[1.02]">
-                                    Pemenang Seterusnya ➡️
-                                </button>
-                            ) : !isLastPrize ? (
-                                <button onClick={handleNextPrize} className="px-10 py-4 bg-red-600 hover:bg-red-500 rounded-2xl text-lg font-bold shadow-[0_10px_30px_rgba(220,38,38,0.4)] transition-all hover:scale-[1.02]">
-                                    Hadiah Seterusnya ➡️
-                                </button>
-                            ) : (
-                                <button onClick={goToSummary} className="px-10 py-4 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-400 hover:to-amber-400 text-black rounded-2xl text-lg font-black transition-all hover:scale-[1.02]">
-                                    Lihat Ringkasan 📋
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                <WinnerOverlay winner={winner} prize={currentPrize}>
+                    {!prizeComplete ? (
+                        <button onClick={handleNextWinner} className="western-btn-secondary px-10 py-4 text-lg">
+                            Next Winner ➡️
+                        </button>
+                    ) : !isLastPrize ? (
+                        <button onClick={handleNextPrize} className="western-btn px-10 py-4 text-lg shadow-[0_10px_30px_rgba(212,160,23,0.35)]">
+                            Next Prize
+                        </button>
+                    ) : (
+                        <button onClick={goToSummary} className="western-btn px-10 py-4 text-lg shadow-[0_10px_30px_rgba(212,160,23,0.35)]">
+                            🏆 View Hall of Fame
+                        </button>
+                    )}
+                </WinnerOverlay>
             )}
+            </div>
+
+            <RightWall />
         </div>
     );
 };

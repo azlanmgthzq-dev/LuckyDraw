@@ -22,9 +22,23 @@ const drawService = {
         return rows[0];
     },
 
-    // Returns { winner_index, total_winners, winner: {id,name,email}, prize: {...}, all_prizes_completed, ... }
+    // draw_winner returns a one-row table:
+    // [{ result_id, participant_id, participant_name, participant_phone, prize_title, prize_image, is_mystery, winner_index }]
+    // Returns that row as a plain object, or null if nothing came back.
     async draw(prizeId) {
-        return check(await supabase.rpc('draw_winner', { p_prize_id: Number(prizeId) }));
+        const data = check(await supabase.rpc('draw_winner', { p_prize_id: Number(prizeId) }));
+        const row = Array.isArray(data) ? data[0] : data;
+        if (!row) return null;
+        return {
+            result_id: row.result_id,
+            participant_id: row.participant_id,
+            participant_name: row.participant_name,
+            participant_phone: row.participant_phone,
+            prize_title: row.prize_title,
+            prize_image: row.prize_image,
+            is_mystery: row.is_mystery,
+            winner_index: row.winner_index,
+        };
     },
 
     async getResults(eventId) {
