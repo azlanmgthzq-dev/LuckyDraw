@@ -1,11 +1,63 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import uploadService from '../../../services/uploadService';
+import prizeService from '../../../services/prizeService';
 
-const AddPrizeModal = ({ prizeForm, setPrizeForm, onSubmit, onClose, actionLoading }) => {
+const AddPrizeModal = ({ prizeForm, setPrizeForm, onSubmit, onClose, actionLoading, participants = [], participantsLoading = false }) => {
     const [imageUploading, setImageUploading] = useState(false);
     const [imagePreview, setImagePreview] = useState(prizeForm.image_url || null);
     const [uploadError, setUploadError] = useState('');
     const fileInputRef = useRef(null);
+
+    // [{ winner_index, participant_id }] — kept even if the method is switched away from scripted
+    const [scriptedWinners, setScriptedWinners] = useState([]);
+    const [scriptedLoading, setScriptedLoading] = useState(false);
+    const [scriptedError, setScriptedError] = useState('');
+
+    const isScripted = prizeForm.selection_method === 'scripted';
+    const slotCount = Number(prizeForm.winner_count) || 0;
+
+    // Edit mode: load the saved scripted winners for this prize
+    useEffect(() => {
+        if (!prizeForm.id) return;
+        let cancelled = false;
+        setScriptedLoading(true);
+        setScriptedError('');
+        prizeService.getScriptedWinners(prizeForm.id)
+            .then(rows => {
+                if (cancelled) return;
+                setScriptedWinners(rows.map(r => ({ winner_index: r.winner_index, participant_id: r.participant_id })));
+            })
+            .catch(() => !cancelled && setScriptedError('Gagal memuatkan pemenang ditetapkan / Failed to load scripted winners'))
+            .finally(() => !cancelled && setScriptedLoading(false));
+        return () => { cancelled = true; };
+    }, [prizeForm.id]);
+
+    // Winner count went down: drop slots past the end
+    useEffect(() => {
+        if (slotCount > 0) {
+            setScriptedWinners(prev => prev.filter(w => w.winner_index <= slotCount));
+        }
+    }, [slotCount]);
+
+    const getSlotParticipant = (index) =>
+        scriptedWinners.find(w => w.winner_index === index)?.participant_id ?? '';
+
+    const setSlotParticipant = (index, participantId) => {
+        setScriptedWinners(prev => {
+            const others = prev.filter(w => w.winner_index !== index);
+            return participantId
+                ? [...others, { winner_index: index, participant_id: participantId }]
+                : others;
+        });
+    };
+
+    const handleSubmit = (e) => {
+        // Only send filled slots that fit within the current winner count
+        const filled = isScripted
+            ? scriptedWinners.filter(w => w.participant_id && w.winner_index <= slotCount)
+            : [];
+        onSubmit(e, filled);
+    };
 
     const handleImageSelect = async (e) => {
         const file = e.target.files[0];
@@ -45,7 +97,7 @@ const AddPrizeModal = ({ prizeForm, setPrizeForm, onSubmit, onClose, actionLoadi
                     {isEditing ? 'Kemaskini Hadiah / Edit Prize' : 'Tambah Hadiah / Add Prize'}
                 </h3>
 
-                <form onSubmit={onSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4">
 
                     {/* Prize Title */}
                     <div>
@@ -107,6 +159,58 @@ const AddPrizeModal = ({ prizeForm, setPrizeForm, onSubmit, onClose, actionLoadi
                             <option value="scripted">Scripted (Ditetapkan)</option>
                         </select>
                     </div>
+
+                    {/* Scripted Winners */}
+                    {isScripted && (
+                        <div className="bg-purple-900/20 border border-purple-700/40 rounded-lg p-3 space-y-3">
+                            <div className="text-sm font-medium text-purple-200">
+                                Pemenang Ditetapkan / Scripted Winners
+                            </div>
+
+                            {participantsLoading || scriptedLoading ? (
+                                <p className="text-xs text-gray-400">Memuatkan... / Loading...</p>
+                            ) : participants.length === 0 ? (
+                                <p className="text-xs text-gray-400">Tiada peserta lagi. / No participants yet.</p>
+                            ) : slotCount === 0 ? (
+                                <p className="text-xs text-gray-400">Tetapkan bilangan pemenang dahulu. / Set the winner count first.</p>
+                            ) : (
+                                Array.from({ length: slotCount }, (_, i) => i + 1).map(index => {
+                                    const current = getSlotParticipant(index);
+                                    const takenElsewhere = new Set(
+                                        scriptedWinners
+                                            .filter(w => w.winner_index !== index)
+                                            .map(w => w.participant_id)
+                                    );
+                                    return (
+                                        <div key={index}>
+                                            <label className="block text-xs font-medium text-gray-400 mb-1">
+                                                Pemenang / Winner #{index}
+                                            </label>
+                                            <select
+                                                value={current}
+                                                onChange={e => setSlotParticipant(index, e.target.value ? Number(e.target.value) : null)}
+                                                className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
+                                            >
+                                                <option value="">— Rawak / Random —</option>
+                                                {participants.map(p => (
+                                                    <option key={p.id} value={p.id} disabled={takenElsewhere.has(p.id)}>
+                                                        {p.name}{p.email ? ` (${p.email})` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    );
+                                })
+                            )}
+
+                            {scriptedError && (
+                                <p className="text-xs text-red-400">⚠️ {scriptedError}</p>
+                            )}
+                            <p className="text-[11px] text-gray-500">
+                                Slot kosong akan dicabut secara rawak. / Empty slots are drawn at random.
+                            </p>
+                        </div>
+                    )}
 
                     {/* Mystery Prize */}
                     <label className="flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 cursor-pointer hover:border-purple-500 transition-colors">
@@ -210,7 +314,7 @@ const AddPrizeModal = ({ prizeForm, setPrizeForm, onSubmit, onClose, actionLoadi
                         </button>
                         <button
                             type="submit"
-                            disabled={actionLoading || imageUploading}
+                            disabled={actionLoading || imageUploading || scriptedLoading}
                             className="px-5 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                             {actionLoading ? 'Menyimpan...' : 'Simpan / Save'}

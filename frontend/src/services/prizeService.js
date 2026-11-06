@@ -51,6 +51,10 @@ const prizeService = {
             .single());
     },
 
+    async clearScriptedWinners(prizeId) {
+        check(await supabase.from('scripted_winners').delete().eq('prize_id', prizeId));
+    },
+
     async getScriptedWinners(prizeId) {
         const rows = check(await supabase
             .from('scripted_winners')

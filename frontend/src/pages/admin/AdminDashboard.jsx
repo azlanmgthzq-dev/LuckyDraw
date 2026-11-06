@@ -24,6 +24,8 @@ const TABS = [
     { id: 'registration', label: 'Registration (Pendaftaran)' },
 ];
 
+const EMPTY_PRIZE_FORM = { title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', is_mystery: false, id: null };
+
 const AdminDashboard = () => {
     const { logout } = useAuth();
     const navigate = useNavigate();
@@ -49,7 +51,9 @@ const AdminDashboard = () => {
 
     // Form state
     const [eventForm, setEventForm] = useState({ name: '', description: '', event_date: '' });
-    const [prizeForm, setPrizeForm] = useState({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', is_mystery: false, id: null });
+    const [prizeForm, setPrizeForm] = useState(EMPTY_PRIZE_FORM);
+    const [prizeModalParticipants, setPrizeModalParticipants] = useState([]);
+    const [prizeModalParticipantsLoading, setPrizeModalParticipantsLoading] = useState(false);
     const [vipForm, setVipForm] = useState({ name: '', email: '', phone: '' });
     const [regDuration, setRegDuration] = useState(3);
 
@@ -141,23 +145,49 @@ const AdminDashboard = () => {
         }
     };
 
-    const handleSavePrize = async (e) => {
+    // Open the prize modal (add or edit) and fetch fresh participants for the scripted pickers
+    const openPrizeModal = async (form) => {
+        setPrizeForm(form);
+        setShowAddPrize(true);
+        if (!selectedEvent) return;
+        setPrizeModalParticipantsLoading(true);
+        try {
+            setPrizeModalParticipants(await participantService.getAll(selectedEvent.id));
+        } catch {
+            setPrizeModalParticipants(participants);
+        } finally {
+            setPrizeModalParticipantsLoading(false);
+        }
+    };
+
+    // scriptedWinners: [{ winner_index, participant_id }] — only filled slots, sent by AddPrizeModal
+    const handleSavePrize = async (e, scriptedWinners = []) => {
         e.preventDefault();
         if (!selectedEvent) return;
         setActionLoading(true);
         try {
-            if (prizeForm.id) {
-                await prizeService.update(prizeForm.id, prizeForm);
-                showMessage('success', 'Hadiah dikemaskini / Prize updated');
-            } else {
-                await prizeService.create(selectedEvent.id, prizeForm);
-                showMessage('success', 'Hadiah ditambah / Prize added');
+            const isEdit = !!prizeForm.id;
+            const saved = isEdit
+                ? await prizeService.update(prizeForm.id, prizeForm)
+                : await prizeService.create(selectedEvent.id, prizeForm);
+
+            // draw_winner uses scripted_winners regardless of selection_method,
+            // so always clear old rows on edit, then re-add only if scripted.
+            if (prizeForm.selection_method === 'scripted' || isEdit) {
+                await prizeService.clearScriptedWinners(saved.id);
             }
+            if (prizeForm.selection_method === 'scripted') {
+                for (const w of scriptedWinners) {
+                    await prizeService.setScriptedWinner(saved.id, w.participant_id, w.winner_index);
+                }
+            }
+
+            showMessage('success', isEdit ? 'Hadiah dikemaskini / Prize updated' : 'Hadiah ditambah / Prize added');
             setShowAddPrize(false);
-            setPrizeForm({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', is_mystery: false, id: null });
+            setPrizeForm(EMPTY_PRIZE_FORM);
             await loadEventData(selectedEvent.id);
         } catch (err) {
-            showMessage('error', err.response?.data?.message || 'Gagal menyimpan hadiah');
+            showMessage('error', err.message || 'Gagal menyimpan hadiah');
         } finally {
             setActionLoading(false);
         }
@@ -174,10 +204,7 @@ const AdminDashboard = () => {
         }
     };
 
-    const handleEditPrize = (prize) => {
-        setPrizeForm({ ...prize });
-        setShowAddPrize(true);
-    };
+    const handleEditPrize = (prize) => openPrizeModal({ ...prize });
 
     const handleAddVIP = async (e) => {
         e.preventDefault();
@@ -385,10 +412,7 @@ const AdminDashboard = () => {
                                 <PrizesTab
                                     selectedEvent={selectedEvent}
                                     prizes={prizes}
-                                    onAddPrize={() => {
-                                        setPrizeForm({ title: '', prize_order: '', winner_count: 1, selection_method: 'random', image_url: '', is_mystery: false, id: null });
-                                        setShowAddPrize(true);
-                                    }}
+                                    onAddPrize={() => openPrizeModal(EMPTY_PRIZE_FORM)}
                                     onEditPrize={handleEditPrize}
                                     onDeletePrize={handleDeletePrize}
                                 />
@@ -436,6 +460,8 @@ const AdminDashboard = () => {
                     onSubmit={handleSavePrize}
                     onClose={() => setShowAddPrize(false)}
                     actionLoading={actionLoading}
+                    participants={prizeModalParticipants}
+                    participantsLoading={prizeModalParticipantsLoading}
                 />
             )}
             {showAddVIP && (
