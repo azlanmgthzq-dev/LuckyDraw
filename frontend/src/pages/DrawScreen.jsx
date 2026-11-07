@@ -7,6 +7,7 @@ import eventService from '../services/eventService';
 import prizeService from '../services/prizeService';
 import drawService from '../services/drawService';
 import participantService from '../services/participantService';
+import { supabase } from '../services/supabaseClient';
 import { isPresent } from '../utils/participants';
 import BrandingBar from '../components/BrandingBar';
 
@@ -274,6 +275,20 @@ const DrawScreen = () => {
             if (mountedRef.current) setParticipants(list);
         } catch { /* keep previous list */ }
     }, [eventId]);
+
+    // Live updates (new photos, late check-ins). The grid is frozen during a draw,
+    // so refreshing the list never disturbs a draw in progress.
+    useEffect(() => {
+        const channel = supabase
+            .channel(`draw-participants-${eventId}`)
+            .on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'participants', filter: `event_id=eq.${eventId}` },
+                () => refreshParticipants()
+            )
+            .subscribe();
+        return () => { supabase.removeChannel(channel); };
+    }, [eventId, refreshParticipants]);
 
     // ── Init: event, session, prizes, participants, existing results ──
     useEffect(() => {

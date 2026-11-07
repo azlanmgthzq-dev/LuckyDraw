@@ -106,6 +106,7 @@ const participantService = {
         // Same path on every upload, so add a version to bust browser/CDN caches
         const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
         const photoUrl = `${data.publicUrl}?v=${Date.now()}`;
+        console.log(`[photo] participant ${participantId} → ${photoUrl}`);
 
         return check(await supabase
             .from('participants')

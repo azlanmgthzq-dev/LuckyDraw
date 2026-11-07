@@ -23,17 +23,10 @@ const LobbyScreen = () => {
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState('');
     const [newEntries, setNewEntries] = useState(new Set());
-    const [copied, setCopied] = useState(false);
     const [realtimeOn, setRealtimeOn] = useState(false);
 
     const prevIdsRef = useRef(null); // ids present at last fetch (null = first load)
     const pollRef = useRef(null);
-
-    // Registration URL for participants
-    const registrationUrl = `${window.location.origin}/checkin/${eventId}`;
-
-    // QR code via qrserver.com — no install needed
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(registrationUrl)}`;
 
     // ── Load event + auto-open registration ───────────────────────
     useEffect(() => {
@@ -113,29 +106,6 @@ const LobbyScreen = () => {
 
     const presentCount = participants.filter(isPresent).length;
 
-    // ── Toggle registration ───────────────────────────────────────
-    const handleToggleRegistration = async () => {
-        try {
-            if (eventData?.registration_open) {
-                await eventService.closeRegistration(eventId);
-            } else {
-                await eventService.openRegistration(eventId);
-            }
-            const refreshed = await eventService.getById(eventId);
-            setEventData(refreshed);
-        } catch {
-            setError('Gagal kemaskini status pendaftaran.');
-        }
-    };
-
-    // ── Copy link ─────────────────────────────────────────────────
-    const handleCopyLink = () => {
-        navigator.clipboard.writeText(registrationUrl).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        });
-    };
-
     // ── Start Draw ────────────────────────────────────────────────
     const handleStartDraw = async () => {
         if (presentCount === 0) {
@@ -159,8 +129,6 @@ const LobbyScreen = () => {
         } catch { /* silent */ }
         navigate('/admin');
     };
-
-    const registrationOpen = !!eventData?.registration_open;
 
     return (
         <div className="western-screen h-screen flex flex-col overflow-hidden">
@@ -209,41 +177,6 @@ const LobbyScreen = () => {
 
                     <div className="rope-divider" />
 
-                    {/* QR Code */}
-                    <div className="rounded-xl p-4 flex flex-col items-center gap-2 bg-west-cream border-2 border-west-border shadow-[0_0_30px_rgba(212,160,23,0.2)]">
-                        <img
-                            src={qrImageUrl}
-                            alt="QR Code Check-In"
-                            className="w-44 h-44 rounded-md bg-white"
-                            onError={(e) => {
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'flex';
-                            }}
-                        />
-                        {/* Fallback if API fails */}
-                        <div className="w-44 h-44 rounded-md bg-white/60 items-center justify-center text-west-muted text-xs text-center p-4 hidden">
-                            QR tidak dapat dimuatkan. Guna link di bawah.
-                        </div>
-                        <div className="text-center">
-                            <div className="font-rye text-base text-west-bg">Imbas untuk Check-In</div>
-                            <div className="font-oswald text-[10px] uppercase tracking-widest text-west-muted">Scan to Check-In</div>
-                        </div>
-                    </div>
-
-                    {/* Copy link */}
-                    <div className="flex gap-2">
-                        <div className="flex-1 min-w-0 bg-west-bg/70 border border-west-border/40 rounded-lg px-3 py-2 text-[10px] text-west-muted font-mono truncate flex items-center">
-                            {registrationUrl}
-                        </div>
-                        <button
-                            onClick={handleCopyLink}
-                            title="Copy link"
-                            className={`shrink-0 px-3 py-2 text-xs ${copied ? 'western-btn' : 'western-btn-secondary'}`}
-                        >
-                            {copied ? '✓ Copied' : '📋 Copy'}
-                        </button>
-                    </div>
-
                     {/* Live Counter */}
                     <div className="western-card p-5 text-center">
                         <div className="font-rye text-7xl text-west-gold leading-none drop-shadow-[0_0_18px_rgba(212,160,23,0.4)]" key={presentCount}>
@@ -267,25 +200,6 @@ const LobbyScreen = () => {
                             <span className="w-1.5 h-1.5 rounded-full bg-west-teal animate-pulse inline-block" />
                             {realtimeOn ? 'Live' : 'Auto-refresh'}
                         </div>
-                    </div>
-
-                    {/* Registration toggle */}
-                    <div className={`rounded-lg border px-3 py-2.5 flex items-center justify-between ${registrationOpen
-                        ? 'bg-west-teal/15 border-west-teal/60'
-                        : 'bg-west-danger/10 border-west-danger/50'
-                        }`}>
-                        <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${registrationOpen ? 'bg-west-teal animate-pulse' : 'bg-west-danger'}`} />
-                            <span className="font-oswald text-xs uppercase tracking-wider text-west-cream">
-                                {registrationOpen ? 'Pendaftaran Dibuka' : 'Pendaftaran Ditutup'}
-                            </span>
-                        </div>
-                        <button
-                            onClick={handleToggleRegistration}
-                            className={`text-[11px] px-2.5 py-1 ${registrationOpen ? 'western-btn-danger' : 'western-btn-secondary'}`}
-                        >
-                            {registrationOpen ? 'Tutup' : 'Buka'}
-                        </button>
                     </div>
 
                     {/* Error */}
@@ -326,7 +240,7 @@ const LobbyScreen = () => {
                     <div className="px-6 pt-4 pb-3 shrink-0">
                         <div className="flex items-center justify-between">
                             <h2 className="font-oswald font-semibold text-sm uppercase tracking-[0.3em] text-west-gold">
-                                ✦ Senarai Peserta Masuk ✦
+                                ✦ BOUNTY HUNTERS READY ! ✦
                             </h2>
                             {loading && <span className="font-oswald text-xs uppercase tracking-widest text-west-muted animate-pulse">Memuatkan...</span>}
                         </div>
@@ -365,12 +279,18 @@ const LobbyScreen = () => {
 };
 
 // ── Participant Card (wanted poster) ──────────────────────────────────────────
-function getInitials(name = '') {
-    return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+// "JEAN PAUL MICHEL MERIGEAUD" → "JP", single word → first 2 letters
+function getInitials(name) {
+    if (!name) return '?';
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
 }
 
 function ParticipantCard({ participant, isNew }) {
     const present = isPresent(participant);
+    const [photoFailed, setPhotoFailed] = useState(false);
+    const showPhoto = participant.photo_url && !photoFailed;
     return (
         <div className={`
             wanted-card rounded-lg px-3 pt-2 pb-3 flex flex-col items-center gap-1.5 text-center transition-all duration-500
@@ -390,9 +310,20 @@ function ParticipantCard({ participant, isNew }) {
                 </span>
             )}
             <div className="font-rye text-[10px] tracking-[0.2em] text-west-gold/80">★ WANTED ★</div>
-            <div className="w-11 h-11 rounded-sm border border-west-border/70 bg-west-bg/50 flex items-center justify-center font-rye text-lg text-west-gold">
-                {getInitials(participant.name) || '?'}
-            </div>
+            {showPhoto ? (
+                <img
+                    src={participant.photo_url}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    onError={() => setPhotoFailed(true)}
+                    className="w-11 h-11 rounded-sm border border-west-border/70 object-cover"
+                />
+            ) : (
+                <div className="w-11 h-11 rounded-sm border border-west-border/70 bg-west-bg/50 flex items-center justify-center font-rye text-lg text-west-gold">
+                    {getInitials(participant.name)}
+                </div>
+            )}
             <div className="font-oswald font-semibold uppercase tracking-wide text-xs md:text-sm leading-tight line-clamp-2 w-full text-west-cream">
                 {participant.name}
             </div>
