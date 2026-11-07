@@ -34,6 +34,14 @@ const pickRandom = (ids, exclude) => {
     return id;
 };
 
+// "JEAN PAUL MICHEL MERIGEAUD" → "JP", single word → first 2 letters
+const getInitials = (name) => {
+    if (!name) return '?';
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+};
+
 // Full-screen gold confetti for ~3 seconds
 const fireConfetti = () => {
     const end = Date.now() + 3000;
@@ -86,9 +94,11 @@ const DustParticles = () => {
 };
 
 // ── Name card (wanted poster) ───────────────────────────────────
-const NameCard = memo(function NameCard({ name, state }) {
+const NameCard = memo(function NameCard({ name, photoUrl, state }) {
     // state: normal | glow (idle) | highlight (drawing) | winner | dim
     const ref = useRef(null);
+    const [photoFailed, setPhotoFailed] = useState(false);
+    const showPhoto = photoUrl && !photoFailed;
 
     useGSAP(() => {
         if (state === 'winner') {
@@ -103,6 +113,20 @@ const NameCard = memo(function NameCard({ name, state }) {
         >
             {state === 'winner' && (
                 <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-xl">👑</span>
+            )}
+            {showPhoto ? (
+                <img
+                    src={photoUrl}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    onError={() => setPhotoFailed(true)}
+                    className="w-10 h-10 rounded-full object-cover border-2 border-amber-600 mb-2 shrink-0"
+                />
+            ) : (
+                <div className="w-10 h-10 rounded-full bg-amber-800 text-amber-200 font-bold text-sm flex items-center justify-center mb-2 shrink-0">
+                    {getInitials(name)}
+                </div>
             )}
             <span className={`font-oswald uppercase leading-tight line-clamp-2 ${state === 'winner' ? 'text-lg md:text-xl font-bold' : 'text-sm md:text-base font-semibold tracking-wide'}`}>
                 {name}
@@ -545,7 +569,7 @@ const DrawScreen = () => {
                         style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
                     >
                         {pool.map(p => (
-                            <NameCard key={p.id} name={p.name} state={cardState(p.id)} />
+                            <NameCard key={p.id} name={p.name} photoUrl={p.photo_url} state={cardState(p.id)} />
                         ))}
                     </div>
                 )}

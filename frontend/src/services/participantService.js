@@ -1,6 +1,27 @@
 // participantService.js — Participants via supabase-js (admin only, protected by RLS)
 import { supabase, check } from './supabaseClient';
 
+const PHOTO_BUCKET = 'participant-photos';
+const PHOTO_MAX_PX = 400; // big enough for the draw screen avatars, small enough to load 100+ fast
+
+// Shrink + convert to JPEG in the browser. Falls back to the original file
+// if the browser can't decode it (e.g. HEIC on some desktops).
+async function toSmallJpeg(file) {
+    try {
+        const bitmap = await createImageBitmap(file);
+        const scale = Math.min(1, PHOTO_MAX_PX / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close?.();
+        const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+        return blob ?? file;
+    } catch {
+        return file;
+    }
+}
+
 const participantService = {
     // All participants, winners first (by prize_order, winner_index), then by registration time.
     // Adds is_winner, prize_title, prize_order, winner_index like the old API.
@@ -68,6 +89,28 @@ const participantService = {
             .update({ checked_in: true })
             .eq('id', participantId)
             .eq('event_id', eventId)
+            .select()
+            .single());
+    },
+
+    // Upload to participant-photos/{id}.jpg (replacing any old one) and save the public URL.
+    async uploadPhoto(participantId, file) {
+        if (!file.type.startsWith('image/')) throw new Error('Sila pilih fail gambar / Please choose an image file');
+        const body = await toSmallJpeg(file);
+        const path = `${participantId}.jpg`;
+
+        check(await supabase.storage
+            .from(PHOTO_BUCKET)
+            .upload(path, body, { contentType: body.type || 'image/jpeg', upsert: true }));
+
+        // Same path on every upload, so add a version to bust browser/CDN caches
+        const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
+        const photoUrl = `${data.publicUrl}?v=${Date.now()}`;
+
+        return check(await supabase
+            .from('participants')
+            .update({ photo_url: photoUrl })
+            .eq('id', participantId)
             .select()
             .single());
     },

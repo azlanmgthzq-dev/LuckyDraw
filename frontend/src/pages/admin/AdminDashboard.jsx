@@ -256,6 +256,17 @@ const AdminDashboard = () => {
         }
     };
 
+    const handleUploadPhoto = async (participantId, file) => {
+        try {
+            const updated = await participantService.uploadPhoto(participantId, file);
+            // Update just this row instead of reloading everything
+            setParticipants(prev => prev.map(p => p.id === participantId ? { ...p, photo_url: updated.photo_url } : p));
+            showMessage('success', 'Gambar dimuat naik / Photo uploaded');
+        } catch (err) {
+            showMessage('error', `Gagal muat naik gambar / Photo upload failed: ${err.message}`);
+        }
+    };
+
     // Reset Draw: wipe all results + sessions for this event and mark everyone present again.
     // Participants and prizes (incl. scripted winners) are kept.
     const handleResetDraw = async () => {
@@ -449,6 +460,7 @@ const AdminDashboard = () => {
                                     onDeleteOne={handleDeleteParticipant}
                                     onDeleteAll={handleDeleteAllParticipants}
                                     onResetDraw={handleResetDraw}
+                                    onUploadPhoto={handleUploadPhoto}
                                 />
                             )}
                             {activeTab === 'registration' && (

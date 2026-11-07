@@ -1,7 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 
-const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onDeleteOne, onDeleteAll, onResetDraw }) => {
+// "JEAN PAUL MICHEL" → "JP"
+const getInitials = (name) => {
+    if (!name) return '?';
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+};
+
+const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onDeleteOne, onDeleteAll, onResetDraw, onUploadPhoto }) => {
     const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+    const [uploadingId, setUploadingId] = useState(null);
+
+    // One hidden file input shared by all rows; remembers which row asked
+    const fileInputRef = useRef(null);
+    const photoTargetRef = useRef(null);
+
+    const pickPhoto = (participantId) => {
+        photoTargetRef.current = participantId;
+        fileInputRef.current?.click();
+    };
+
+    const handlePhotoSelected = async (e) => {
+        const file = e.target.files?.[0];
+        const participantId = photoTargetRef.current;
+        e.target.value = ''; // allow choosing the same file again
+        if (!file || !participantId) return;
+        setUploadingId(participantId);
+        try {
+            await onUploadPhoto(participantId, file);
+        } finally {
+            setUploadingId(null);
+        }
+    };
 
     if (!selectedEvent) {
         return (
@@ -75,6 +106,14 @@ const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onD
                 </div>
             </div>
 
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoSelected}
+                className="hidden"
+            />
+
             {/* Table */}
             <div className="overflow-x-auto rounded-xl border border-gray-800">
                 <table className="w-full text-left border-collapse">
@@ -100,19 +139,34 @@ const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onD
                                     #{String(p.id).padStart(4, '0')}
                                 </td>
                                 <td className="p-4 text-sm font-medium text-white">
-                                    <div className="flex items-center gap-2">
-                                        {p.name || 'Anonymous'}
-                                        {p.is_winner && (
-                                            <span className="text-yellow-400 text-xs" title={`Menang: ${p.prize_title}`}>
-                                                🏆
-                                            </span>
+                                    <div className="flex items-center gap-3">
+                                        {p.photo_url ? (
+                                            <img
+                                                src={p.photo_url}
+                                                alt=""
+                                                className="w-9 h-9 rounded-full object-cover border border-gray-600 shrink-0"
+                                            />
+                                        ) : (
+                                            <div className="w-9 h-9 rounded-full bg-gray-700 text-gray-300 text-xs font-bold flex items-center justify-center shrink-0">
+                                                {getInitials(p.name)}
+                                            </div>
                                         )}
-                                    </div>
-                                    {p.is_winner && p.prize_title && (
-                                        <div className="text-[11px] text-yellow-500/70 mt-0.5">
-                                            {p.prize_title} — #{p.winner_index}
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                {p.name || 'Anonymous'}
+                                                {p.is_winner && (
+                                                    <span className="text-yellow-400 text-xs" title={`Menang: ${p.prize_title}`}>
+                                                        🏆
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {p.is_winner && p.prize_title && (
+                                                <div className="text-[11px] text-yellow-500/70 mt-0.5">
+                                                    {p.prize_title} — #{p.winner_index}
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
+                                    </div>
                                 </td>
                                 <td className="p-4 text-sm text-gray-400">
                                     <div>{p.email || '-'}</div>
@@ -152,6 +206,14 @@ const ParticipantsTab = ({ selectedEvent, participants, onAddVIP, onCheckIn, onD
                                                 Check In
                                             </button>
                                         )}
+                                        <button
+                                            onClick={() => pickPhoto(p.id)}
+                                            disabled={uploadingId !== null}
+                                            className="bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-200 px-3 py-1.5 rounded-md text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title={p.photo_url ? 'Tukar gambar / Change photo' : 'Muat naik gambar / Upload photo'}
+                                        >
+                                            {uploadingId === p.id ? '⏳' : '📷'}
+                                        </button>
                                         <button
                                             onClick={() => onDeleteOne(p.id)}
                                             className="bg-red-900/40 hover:bg-red-700 border border-red-700/40 text-red-400 hover:text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
